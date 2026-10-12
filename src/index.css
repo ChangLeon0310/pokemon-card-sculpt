@@ -190,3 +190,57 @@
   inset: 0;
 }
 
+/* 圖層自由選取與排序 */
+.layer {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  outline: none;
+}
+
+.layer:focus-visible {
+  box-shadow: 0 0 0 2px #38bdf8;
+}
+
+.layer.active-layer::before {
+  content: "編輯中";
+  position: absolute;
+  right: 10px;
+  top: -9px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #fb923c;
+  color: #111827;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.layer.active-layer {
+  position: relative;
+}
+
+.layer-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.layer-controls button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.layer-controls svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 1100px) {
+  .layer-controls {
+    display: grid;
+    grid-template-columns: repeat(2, 30px);
+  }
+}
+
