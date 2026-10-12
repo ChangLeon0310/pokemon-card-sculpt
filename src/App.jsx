@@ -29,11 +29,31 @@ const assetUrl = (url, quality = "low") => {
 
 const cutMaskStyle = (cuts = []) => {
   if (!cuts.length) return {};
+
   const holes = cuts
-    .map((cut) => `<polygon points="${cut.map((point) => `${point.x},${point.y}`).join(" ")}" fill="black"/>`)
+    .map(
+      (cut) =>
+        `<polygon points="${cut
+          .map((point) => `${point.x},${point.y}`)
+          .join(" ")}" fill="black"/>`
+    )
     .join("");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="white"/>${holes}</svg>`;
+
+  // Create a real alpha mask. A plain black polygon is still opaque when the
+  // browser uses alpha masking, so the previous version did not make holes.
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <defs>
+        <mask id="cut-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+          <rect x="0" y="0" width="100" height="100" fill="white"/>
+          ${holes}
+        </mask>
+      </defs>
+      <rect x="0" y="0" width="100" height="100" fill="white" mask="url(#cut-mask)"/>
+    </svg>`;
+
   const mask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+
   return {
     WebkitMaskImage: mask,
     maskImage: mask,
