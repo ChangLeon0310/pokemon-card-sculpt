@@ -157,6 +157,7 @@ function CardSculptApp() {
   const [draggingPoint, setDraggingPoint] = useState(null);
 
   const drag = useRef(null);
+  const cardStageRef = useRef(null);
 
   const clamp = (value, min, max) =>
     Math.min(max, Math.max(min, value));
@@ -314,8 +315,11 @@ function CardSculptApp() {
     [layers]
   );
 
-  const pointFromEvent = (event, element) => {
-    const rect = element.getBoundingClientRect();
+  const pointFromEvent = (event) => {
+    const stage = cardStageRef.current;
+    if (!stage) return null;
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
     return {
       x: clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100),
       y: clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100),
@@ -324,10 +328,9 @@ function CardSculptApp() {
 
   const addPolygonPoint = (event) => {
     if (tool !== "poly" || draggingPoint !== null || activeLayer?.locked) return;
-    setPolygonPoints((points) => [
-      ...points,
-      pointFromEvent(event, event.currentTarget),
-    ]);
+    const nextPoint = pointFromEvent(event);
+    if (!nextPoint) return;
+    setPolygonPoints((points) => [...points, nextPoint]);
   };
 
   const beginPointDrag = (event, index) => {
@@ -341,9 +344,8 @@ function CardSculptApp() {
     if (draggingPoint !== index) return;
     event.preventDefault();
     event.stopPropagation();
-    const svg = event.currentTarget.ownerSVGElement;
-    if (!svg) return;
-    const nextPoint = pointFromEvent(event, svg);
+    const nextPoint = pointFromEvent(event);
+    if (!nextPoint) return;
     setPolygonPoints((points) =>
       points.map((point, pointIndex) =>
         pointIndex === index ? nextPoint : point
@@ -354,7 +356,13 @@ function CardSculptApp() {
   const endPointDrag = (event) => {
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    try {
+      if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // The node may have been re-rendered before pointerup.
+    }
     setDraggingPoint(null);
   };
 
@@ -591,7 +599,7 @@ function CardSculptApp() {
               </aside>
 
               <section className="canvas">
-                <div className="cardstage polygon-stage" onPointerDown={addPolygonPoint}>
+                <div ref={cardStageRef} className="cardstage polygon-stage" onPointerDown={addPolygonPoint}>
                   <CardImage
                     src={card.image}
                     name={card.name}
