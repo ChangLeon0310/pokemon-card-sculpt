@@ -38,26 +38,48 @@ const Btn = ({ children, className = "", ...props }) => (
 );
 
 function CardImage({ src, name, className = "", style = {} }) {
-  const [bad, setBad] = useState(false);
+  const candidates = useMemo(() => {
+    if (!src) return [];
+    const urls = [src];
+    if (src.includes("/high.webp")) urls.push(src.replace("/high.webp", "/low.webp"));
+    if (src.includes("/low.webp")) urls.push(src.replace("/low.webp", "/high.webp"));
+    urls.push(src.replace(/\.webp$/i, ".png"));
+    return [...new Set(urls)];
+  }, [src]);
 
-  if (bad || !src) {
+  const [candidateIndex, setCandidateIndex] = useState(0);
+
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [src]);
+
+  const currentSrc = candidates[candidateIndex];
+
+  if (!currentSrc) {
     return (
       <div className={`fallback ${className}`} style={style}>
         <Layers3 />
         <b>{name}</b>
-        <small>外部圖片無法載入</small>
+        <small>此卡牌沒有圖片</small>
       </div>
     );
   }
 
   return (
     <img
-      src={src}
+      src={currentSrc}
       alt={name}
       className={className}
       style={style}
       draggable="false"
-      onError={() => setBad(true)}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (candidateIndex < candidates.length - 1) {
+          setCandidateIndex((index) => index + 1);
+        }
+      }}
     />
   );
 }
