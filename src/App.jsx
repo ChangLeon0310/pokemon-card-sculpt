@@ -216,8 +216,19 @@ function CardSculptApp() {
   const [brushing, setBrushing] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [brushCursor, setBrushCursor] = useState(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [spaceDown, setSpaceDown] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const [stability, setStability] = useState(55);
+  const [brushMode, setBrushMode] = useState("image");
+  const [linePoints, setLinePoints] = useState([]);
+  const [curvePoints, setCurvePoints] = useState([]);
+  const [edgeSnap, setEdgeSnap] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [future, setFuture] = useState([]);
 
   const drag = useRef(null);
+  const panDrag = useRef(null);
   const cardStageRef = useRef(null);
 
   const clamp = (value, min, max) =>
