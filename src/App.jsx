@@ -27,8 +27,26 @@ const assetUrl = (url, quality = "low") => {
   return `${url}/${quality}.webp`;
 };
 
+const cutMaskStyle = (cuts = []) => {
+  if (!cuts.length) return {};
+  const holes = cuts
+    .map((cut) => `<polygon points="${cut.map((point) => `${point.x},${point.y}`).join(" ")}" fill="black"/>`)
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="white"/>${holes}</svg>`;
+  const mask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  return {
+    WebkitMaskImage: mask,
+    maskImage: mask,
+    WebkitMaskSize: "100% 100%",
+    maskSize: "100% 100%",
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
+  };
+};
+
 const seed = [
-  { id: 1, name: "完整背景", visible: true, opacity: 1, polygon: null },
+  { id: 1, name: "完整背景", visible: true, opacity: 1, cuts: [], locked: true },
+  { id: 2, name: "切割層 1", visible: true, opacity: 1, cuts: [], locked: false },
 ];
 
 const Btn = ({ children, className = "", ...props }) => (
@@ -105,7 +123,8 @@ export default function App() {
   const [sensitivity, setSensitivity] = useState(0.12);
   const [dragging, setDragging] = useState(false);
   const [polygonPoints, setPolygonPoints] = useState([]);
-  const [layerName, setLayerName] = useState("寶可夢主體");
+  const [layerName, setLayerName] = useState("切割層 1");
+  const [activeLayerId, setActiveLayerId] = useState(2);
 
   const drag = useRef(null);
 
@@ -255,38 +274,55 @@ export default function App() {
   const clearPolygon = () => setPolygonPoints([]);
 
   const finishPolygon = () => {
-    if (polygonPoints.length < 3) return;
-    const polygon = polygonPoints
-      .map((point) => `${point.x.toFixed(2)}% ${point.y.toFixed(2)}%`)
-      .join(", ");
-    setLayers((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        name: layerName.trim() || `分割圖層 ${current.length}`,
-        visible: true,
-        opacity: 1,
-        polygon,
-      },
-    ]);
+    if (polygonPoints.length < 3 || !activeLayerId) return;
+    setLayers((current) =>
+      current.map((layer) =>
+        layer.id === activeLayerId
+          ? { ...layer, cuts: [...(layer.cuts || []), polygonPoints] }
+          : layer
+      )
+    );
     setPolygonPoints([]);
-    setLayerName(`分割圖層 ${layers.length + 1}`);
   };
 
-  const add = () =>
+  const undoLastCut = () => {
+    setLayers((current) =>
+      current.map((layer) =>
+        layer.id === activeLayerId
+          ? { ...layer, cuts: (layer.cuts || []).slice(0, -1) }
+          : layer
+      )
+    );
+  };
+
+  const renameActiveLayer = (name) => {
+    setLayerName(name);
+    setLayers((current) =>
+      current.map((layer) =>
+        layer.id === activeLayerId ? { ...layer, name } : layer
+      )
+    );
+  };
+
+  const add = () => {
+    const id = Date.now();
+    const name = `切割層 ${layers.length}`;
     setLayers((current) => [
       ...current,
-      {
-        id: Date.now(),
-        name: `新圖層 ${current.length + 1}`,
-        visible: true,
-        opacity: 1,
-        polygon: null,
-      },
+      { id, name, visible: true, opacity: 1, cuts: [], locked: false },
     ]);
+    setActiveLayerId(id);
+    setLayerName(name);
+    setPolygonPoints([]);
+  };
 
-  const remove = (id) =>
+  const remove = (id) => {
     setLayers((current) => current.filter((layer) => layer.id !== id));
+    if (activeLayerId === id) {
+      setActiveLayerId(2);
+      setLayerName("切割層 1");
+    }
+  };
 
   const toggle = (id) =>
     setLayers((current) =>
@@ -452,16 +488,17 @@ export default function App() {
 
                 <div className="polygon-panel">
                   <label>
-                    圖層名稱
-                    <input value={layerName} onChange={(event) => setLayerName(event.target.value)} />
+                    目前圖層名稱
+                    <input value={layerName} onChange={(event) => renameActiveLayer(event.target.value)} />
                   </label>
-                  <p>在卡牌上依序點擊輪廓，至少建立 3 個節點。</p>
+                  <p>減法裁切模式：保留整張卡，圈選的區域會被挖除。可重複圈選移除多個區域。</p>
                   <div className="polygon-actions">
                     <Btn onClick={undoPolygonPoint} disabled={!polygonPoints.length}>復原節點</Btn>
-                    <Btn onClick={clearPolygon} disabled={!polygonPoints.length}>清除</Btn>
+                    <Btn onClick={clearPolygon} disabled={!polygonPoints.length}>清除節點</Btn>
+                    <Btn onClick={undoLastCut} disabled={!(layers.find((layer) => layer.id === activeLayerId)?.cuts?.length)}>復原裁切</Btn>
                   </div>
-                  <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3}>
-                    完成分割（{polygonPoints.length} 點）
+                  <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3 || !activeLayerId}>
+                    裁掉圈選區域（{polygonPoints.length} 點）
                   </Btn>
                 </div>
               </aside>
@@ -473,8 +510,8 @@ export default function App() {
                     {polygonPoints.length > 1 && (
                       <polyline
                         points={polygonPoints.map((point) => `${point.x},${point.y}`).join(" ")}
-                        fill="rgba(34,211,238,.16)"
-                        stroke="#67e8f9"
+                        fill="rgba(248,113,113,.28)"
+                        stroke="#fca5a5"
                         strokeWidth="0.7"
                         vectorEffect="non-scaling-stroke"
                       />
@@ -486,7 +523,7 @@ export default function App() {
                       </g>
                     ))}
                   </svg>
-                  <small>{polygonPoints.length ? `${polygonPoints.length} 個節點，完成後按左側「完成分割」` : "沿著主體輪廓依序點擊"}</small>
+                  <small>{polygonPoints.length ? `${polygonPoints.length} 個節點，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
                 </div>
               </section>
 
@@ -499,18 +536,26 @@ export default function App() {
                 </div>
 
                 {[...layers].reverse().map((layer) => (
-                  <div className="layer" key={layer.id}>
-                    <CardImage src={card.image} name={card.name} style={layer.polygon ? { clipPath: `polygon(${layer.polygon})` } : {}} />
+                  <div
+                    className={`layer ${activeLayerId === layer.id ? "active-layer" : ""}`}
+                    key={layer.id}
+                    onClick={() => {
+                      setActiveLayerId(layer.id);
+                      setLayerName(layer.name);
+                      setPolygonPoints([]);
+                    }}
+                  >
+                    <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts)} />
                     <b>
                       {layer.name}
                       <small>
-                        透明度 {Math.round(layer.opacity * 100)}%
+                        {layer.locked ? "固定底圖" : `已裁切 ${layer.cuts?.length || 0} 區`} · 透明度 {Math.round(layer.opacity * 100)}%
                       </small>
                     </b>
-                    <button onClick={() => toggle(layer.id)}>
+                    <button onClick={(event) => { event.stopPropagation(); toggle(layer.id); }}>
                       {layer.visible ? <Eye /> : <EyeOff />}
                     </button>
-                    <button onClick={() => remove(layer.id)}>
+                    <button disabled={layer.locked} onClick={(event) => { event.stopPropagation(); remove(layer.id); }}>
                       <Trash2 />
                     </button>
                   </div>
@@ -634,7 +679,7 @@ export default function App() {
                           name={card.name}
                           style={{
                             opacity: layer.opacity,
-                            clipPath: layer.polygon ? `polygon(${layer.polygon})` : "none",
+                            ...cutMaskStyle(layer.cuts),
                           }}
                         />
                       </div>
