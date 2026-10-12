@@ -313,3 +313,15 @@
   font-weight: 500;
 }
 
+
+/* 精密裁切工具 */
+.tools{grid-template-columns:repeat(2,minmax(0,1fr))}
+.brush-controls select{width:100%;padding:8px;border-radius:10px;border:1px solid #ffffff22;background:#020617;color:#e2e8f0}
+.precision-panel{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.precision-panel p{grid-column:1/-1;margin:0;color:#94a3b8;font-size:12px;line-height:1.6}
+.canvas{cursor:default}
+.cardstage{transition:none}
+.cardstage:active{cursor:crosshair}
+.zoom-indicator{display:flex;align-items:center;gap:6px;right:12px;top:12px}
+.zoom-indicator button{border:1px solid #ffffff22;border-radius:8px;background:#ffffff0d;color:#e2e8f0;padding:4px 7px;cursor:pointer;pointer-events:auto}
+.zoom-indicator b{min-width:48px;text-align:center}
