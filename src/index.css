@@ -243,4 +243,32 @@
     grid-template-columns: repeat(2, 30px);
   }
 }
+/* 自由筆刷裁切 */
+.tools {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.brush-controls {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.brush-controls label {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.brush-controls input[type="range"] {
+  width: 100%;
+  accent-color: #f87171;
+}
+
+.brush-stage {
+  cursor: crosshair;
+}
+
+.brush-stage .polygon-overlay {
+  pointer-events: none;
+}
 
