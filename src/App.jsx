@@ -28,10 +28,7 @@ const assetUrl = (url, quality = "low") => {
 };
 
 const seed = [
-  { id: 1, name: "卡框與背景", visible: true, opacity: 1 },
-  { id: 2, name: "場景／特效", visible: true, opacity: 0.96 },
-  { id: 3, name: "寶可夢主體", visible: true, opacity: 1 },
-  { id: 4, name: "前景高光", visible: true, opacity: 0.88 },
+  { id: 1, name: "完整背景", visible: true, opacity: 1, polygon: null },
 ];
 
 const Btn = ({ children, className = "", ...props }) => (
@@ -85,6 +82,8 @@ export default function App() {
   const [step, setStep] = useState(0);
   const [sensitivity, setSensitivity] = useState(0.12);
   const [dragging, setDragging] = useState(false);
+  const [polygonPoints, setPolygonPoints] = useState([]);
+  const [layerName, setLayerName] = useState("寶可夢主體");
 
   const drag = useRef(null);
 
@@ -220,6 +219,38 @@ export default function App() {
     [layers]
   );
 
+  const addPolygonPoint = (event) => {
+    if (tool !== "poly") return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100);
+    setPolygonPoints((points) => [...points, { x, y }]);
+  };
+
+  const undoPolygonPoint = () =>
+    setPolygonPoints((points) => points.slice(0, -1));
+
+  const clearPolygon = () => setPolygonPoints([]);
+
+  const finishPolygon = () => {
+    if (polygonPoints.length < 3) return;
+    const polygon = polygonPoints
+      .map((point) => `${point.x.toFixed(2)}% ${point.y.toFixed(2)}%`)
+      .join(", ");
+    setLayers((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        name: layerName.trim() || `分割圖層 ${current.length}`,
+        visible: true,
+        opacity: 1,
+        polygon,
+      },
+    ]);
+    setPolygonPoints([]);
+    setLayerName(`分割圖層 ${layers.length + 1}`);
+  };
+
   const add = () =>
     setLayers((current) => [
       ...current,
@@ -228,6 +259,7 @@ export default function App() {
         name: `新圖層 ${current.length + 1}`,
         visible: true,
         opacity: 1,
+        polygon: null,
       },
     ]);
 
@@ -382,10 +414,7 @@ export default function App() {
               <aside>
                 <h4>分割工具</h4>
                 <div className="tools">
-                  <Btn
-                    className={tool === "magic" ? "active" : ""}
-                    onClick={() => setTool("magic")}
-                  >
+                  <Btn disabled title="智慧選取將於下一階段加入">
                     <WandSparkles />
                     智慧選取
                   </Btn>
@@ -399,16 +428,43 @@ export default function App() {
                   </Btn>
                 </div>
 
-                <p className="notice">
-                  目前為互動原型。正式版可接入影像分割模型及遮罩筆刷。
-                </p>
+                <div className="polygon-panel">
+                  <label>
+                    圖層名稱
+                    <input value={layerName} onChange={(event) => setLayerName(event.target.value)} />
+                  </label>
+                  <p>在卡牌上依序點擊輪廓，至少建立 3 個節點。</p>
+                  <div className="polygon-actions">
+                    <Btn onClick={undoPolygonPoint} disabled={!polygonPoints.length}>復原節點</Btn>
+                    <Btn onClick={clearPolygon} disabled={!polygonPoints.length}>清除</Btn>
+                  </div>
+                  <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3}>
+                    完成分割（{polygonPoints.length} 點）
+                  </Btn>
+                </div>
               </aside>
 
               <section className="canvas">
-                <div className="cardstage">
+                <div className="cardstage polygon-stage" onPointerDown={addPolygonPoint}>
                   <CardImage src={card.image} name={card.name} />
-                  <div className="selection" />
-                  <small>點擊主體建立遮罩</small>
+                  <svg className="polygon-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    {polygonPoints.length > 1 && (
+                      <polyline
+                        points={polygonPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+                        fill="rgba(34,211,238,.16)"
+                        stroke="#67e8f9"
+                        strokeWidth="0.7"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                    {polygonPoints.map((point, index) => (
+                      <g key={`${point.x}-${point.y}-${index}`}>
+                        <circle cx={point.x} cy={point.y} r="1.4" fill="#fde047" stroke="#111827" strokeWidth="0.5" />
+                        <text x={point.x + 1.8} y={point.y - 1.8} fill="white" fontSize="3">{index + 1}</text>
+                      </g>
+                    ))}
+                  </svg>
+                  <small>{polygonPoints.length ? `${polygonPoints.length} 個節點，完成後按左側「完成分割」` : "沿著主體輪廓依序點擊"}</small>
                 </div>
               </section>
 
@@ -422,7 +478,7 @@ export default function App() {
 
                 {[...layers].reverse().map((layer) => (
                   <div className="layer" key={layer.id}>
-                    <CardImage src={card.image} name={card.name} />
+                    <CardImage src={card.image} name={card.name} style={layer.polygon ? { clipPath: `polygon(${layer.polygon})` } : {}} />
                     <b>
                       {layer.name}
                       <small>
@@ -554,7 +610,10 @@ export default function App() {
                         <CardImage
                           src={card.image}
                           name={card.name}
-                          style={{ opacity: layer.opacity }}
+                          style={{
+                            opacity: layer.opacity,
+                            clipPath: layer.polygon ? `polygon(${layer.polygon})` : "none",
+                          }}
                         />
                       </div>
                     )
