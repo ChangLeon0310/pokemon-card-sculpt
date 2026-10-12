@@ -47,12 +47,12 @@ const cutMaskStyle = (cuts = [], strokes = []) => {
       if (!stroke.points?.length) return "";
       const points = stroke.points;
       if (points.length === 1) {
-        return `<circle cx="${points[0].x}" cy="${points[0].y}" r="${stroke.size / 2}" fill="black"/>`;
+        return `<circle cx="${points[0].x}" cy="${points[0].y}" r="${stroke.size / 2}" fill="${stroke.mode === "restore" ? "white" : "black"}"/>`;
       }
       const path = points
         .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
         .join(" ");
-      return `<path d="${path}" fill="none" stroke="black" stroke-width="${stroke.size}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      return `<path d="${path}" fill="none" stroke="${stroke.mode === "restore" ? "white" : "black"}" stroke-width="${stroke.size}" stroke-linecap="round" stroke-linejoin="round"/>`;
     })
     .join("");
 
@@ -196,6 +196,8 @@ function CardSculptApp() {
   const [brushSize, setBrushSize] = useState(5);
   const [brushStroke, setBrushStroke] = useState([]);
   const [brushing, setBrushing] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [brushCursor, setBrushCursor] = useState(null);
 
   const drag = useRef(null);
   const cardStageRef = useRef(null);
@@ -330,6 +332,8 @@ function CardSculptApp() {
     setGuide(false);
     setStep(0);
     setRot({ x: -8, y: -18 });
+    setZoom(1);
+    setBrushCursor(null);
     setScreen("editor");
   };
 
@@ -408,7 +412,7 @@ function CardSculptApp() {
   };
 
   const beginBrush = (event) => {
-    if (tool !== "brush" || activeLayer?.locked) return;
+    if (!["brush", "restore"].includes(tool) || activeLayer?.locked) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const point = pointFromEvent(event);
@@ -418,7 +422,7 @@ function CardSculptApp() {
   };
 
   const moveBrush = (event) => {
-    if (!brushing || tool !== "brush") return;
+    if (!brushing || !["brush", "restore"].includes(tool)) return;
     event.preventDefault();
     const point = pointFromEvent(event);
     if (!point) return;
@@ -441,13 +445,25 @@ function CardSculptApp() {
       setLayers((current) =>
         current.map((layer) =>
           layer.id === activeLayerId
-            ? { ...layer, strokes: [...(layer.strokes || []), { points: brushStroke, size: brushSize }] }
+            ? { ...layer, strokes: [...(layer.strokes || []), { points: brushStroke, size: brushSize, mode: tool === "restore" ? "restore" : "cut" }] }
             : layer
         )
       );
     }
     setBrushStroke([]);
     setBrushing(false);
+  };
+
+  const handleEditorWheel = (event) => {
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 0.15 : -0.15;
+    setZoom((value) => clamp(Number((value + direction).toFixed(2)), 1, 4));
+  };
+
+  const updateBrushCursor = (event) => {
+    if (!["brush", "restore"].includes(tool)) return;
+    const point = pointFromEvent(event);
+    if (point) setBrushCursor(point);
   };
 
   const undoBrushStroke = () => {
@@ -710,6 +726,17 @@ function CardSculptApp() {
                     <Eraser />
                     自由裁切
                   </Btn>
+
+                  <Btn
+                    className={tool === "restore" ? "active" : ""}
+                    onClick={() => {
+                      setTool("restore");
+                      setPolygonPoints([]);
+                    }}
+                  >
+                    <WandSparkles />
+                    還原筆刷
+                  </Btn>
                 </div>
 
                 <div className="polygon-panel">
@@ -717,10 +744,10 @@ function CardSculptApp() {
                     目前圖層名稱
                     <input value={layerName} onChange={(event) => renameActiveLayer(event.target.value)} />
                   </label>
-                  <p>{activeLayer?.locked ? "完整背景為固定底圖，請選擇切割層後再裁切。" : tool === "brush" ? "自由裁切模式：按住滑鼠或手指塗抹，不要的部分會在放開後直接消失。" : "多邊形模式：圈選不要的區域，拖曳黃色節點微調，再按裁掉。"}</p>
-                  {tool === "brush" && (
+                  <p>{activeLayer?.locked ? "完整背景為固定底圖，請選擇切割層後再裁切。" : tool === "brush" ? "自由裁切模式：塗抹不要的部分，放開後直接消失。" : tool === "restore" ? "還原筆刷：塗抹已裁掉的位置，放開後恢復影像。" : "多邊形模式：圈選不要的區域，拖曳黃色節點微調，再按裁掉。"}</p>
+                  {["brush", "restore"].includes(tool) && (
                     <div className="brush-controls">
-                      <label>筆刷大小：{brushSize}</label>
+                      <label>{tool === "restore" ? "還原筆刷" : "裁切筆刷"}大小：{brushSize}</label>
                       <input type="range" min="1" max="20" step="1" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} />
                       <Btn onClick={undoBrushStroke} disabled={!(activeLayer?.strokes?.length)}>復原筆刷</Btn>
                     </div>
@@ -742,12 +769,18 @@ function CardSculptApp() {
               <section className="canvas">
                 <div
                   ref={cardStageRef}
-                  className={`cardstage polygon-stage ${tool === "brush" ? "brush-stage" : ""}`}
+                  className={`cardstage polygon-stage ${["brush", "restore"].includes(tool) ? "brush-stage" : ""}`}
+                  style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
+                  onWheel={handleEditorWheel}
                   onPointerDown={(event) => {
-                    if (tool === "brush") beginBrush(event);
+                    if (["brush", "restore"].includes(tool)) beginBrush(event);
                     else addPolygonPoint(event);
                   }}
-                  onPointerMove={moveBrush}
+                  onPointerMove={(event) => {
+                    updateBrushCursor(event);
+                    moveBrush(event);
+                  }}
+                  onPointerLeave={() => setBrushCursor(null)}
                   onPointerUp={endBrush}
                   onPointerCancel={endBrush}
                 >
@@ -770,10 +803,21 @@ function CardSculptApp() {
                       <polyline
                         points={brushStroke.map((point) => `${point.x},${point.y}`).join(" ")}
                         fill="none"
-                        stroke="rgba(248,113,113,.82)"
+                        stroke={tool === "restore" ? "rgba(52,211,153,.9)" : "rgba(248,113,113,.82)"}
                         strokeWidth={brushSize}
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                    {brushCursor && ["brush", "restore"].includes(tool) && !brushing && (
+                      <circle
+                        cx={brushCursor.x}
+                        cy={brushCursor.y}
+                        r={brushSize / 2}
+                        fill={tool === "restore" ? "rgba(52,211,153,.18)" : "rgba(248,113,113,.18)"}
+                        stroke={tool === "restore" ? "#34d399" : "#f87171"}
+                        strokeWidth="0.45"
                         vectorEffect="non-scaling-stroke"
                       />
                     )}
@@ -796,7 +840,8 @@ function CardSculptApp() {
                       </g>
                     ))}
                   </svg>
-                  <small>{activeLayer?.locked ? "請先從右側選擇切割層" : tool === "brush" ? (brushing ? "正在自由裁切，放開後套用" : "按住並塗抹不要的細節") : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
+                  <small>{activeLayer?.locked ? "請先從右側選擇切割層" : tool === "brush" ? (brushing ? "正在自由裁切，放開後套用" : "滾輪縮放；按住並塗抹不要的細節") : tool === "restore" ? (brushing ? "正在還原，放開後套用" : "滾輪縮放；塗抹要恢復的區域") : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
+                  <div className="zoom-indicator">{Math.round(zoom * 100)}%</div>
                 </div>
               </section>
 
