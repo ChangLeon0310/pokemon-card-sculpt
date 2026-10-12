@@ -12,6 +12,8 @@ import {
   Eraser,
   Layers3,
   ListChecks,
+  MousePointer2,
+  Minus,
   Plus,
   Rotate3D,
   Scissors,
@@ -398,7 +400,10 @@ function CardSculptApp() {
     setStep(0);
     setRot({ x: -8, y: -18 });
     setZoom(1);
+    setPan({ x: 0, y: 0 });
     setBrushCursor(null);
+    setLinePoints([]);
+    setCurvePoints([]);
     setScreen("editor");
   };
 
@@ -476,6 +481,34 @@ function CardSculptApp() {
     setDraggingPoint(null);
   };
 
+  const commitLayers = (updater) => {
+    setLayers((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      if (next === current) return current;
+      setHistory((items) => [...items.slice(-39), current]);
+      setFuture([]);
+      return next;
+    });
+  };
+
+  const undoEdit = () => {
+    if (!history.length) return;
+    const previous = history[history.length - 1];
+    setFuture((items) => [layers, ...items].slice(0, 40));
+    setHistory((items) => items.slice(0, -1));
+    setLayers(previous);
+  };
+
+  const redoEdit = () => {
+    if (!future.length) return;
+    const next = future[0];
+    setHistory((items) => [...items, layers].slice(-40));
+    setFuture((items) => items.slice(1));
+    setLayers(next);
+  };
+
+  const effectiveBrushSize = brushMode === "screen" ? brushSize / zoom : brushSize;
+
   const beginBrush = (event) => {
     if (!["brush", "restore"].includes(tool) || activeLayer?.locked) return;
     event.preventDefault();
@@ -493,8 +526,15 @@ function CardSculptApp() {
     if (!point) return;
     setBrushStroke((points) => {
       const last = points[points.length - 1];
-      if (last && Math.hypot(point.x - last.x, point.y - last.y) < 0.35) return points;
-      return [...points, point];
+      if (!last) return [point];
+      const distance = Math.hypot(point.x - last.x, point.y - last.y);
+      if (distance < 0.12) return points;
+      const follow = Math.max(0.08, 1 - stability / 105);
+      const smoothPoint = {
+        x: last.x + (point.x - last.x) * follow,
+        y: last.y + (point.y - last.y) * follow,
+      };
+      return [...points, smoothPoint];
     });
   };
 
@@ -507,10 +547,10 @@ function CardSculptApp() {
       }
     } catch {}
     if (brushStroke.length) {
-      setLayers((current) =>
+      commitLayers((current) =>
         current.map((layer) =>
           layer.id === activeLayerId
-            ? { ...layer, strokes: [...(layer.strokes || []), { points: brushStroke, size: brushSize, mode: tool === "restore" ? "restore" : "cut" }] }
+            ? { ...layer, strokes: [...(layer.strokes || []), { points: brushStroke, size: effectiveBrushSize, mode: tool === "restore" ? "restore" : "cut" }] }
             : layer
         )
       );
@@ -521,14 +561,115 @@ function CardSculptApp() {
 
   const handleEditorWheel = (event) => {
     event.preventDefault();
-    const direction = event.deltaY < 0 ? 0.15 : -0.15;
-    setZoom((value) => clamp(Number((value + direction).toFixed(2)), 1, 4));
+    const canvas = cardStageRef.current?.parentElement;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const nextZoom = clamp(Number((zoom + (event.deltaY < 0 ? 0.25 : -0.25)).toFixed(2)), 1, 6);
+    const ratio = nextZoom / zoom;
+    setPan((current) => ({
+      x: pointer.x - rect.width / 2 - (pointer.x - rect.width / 2 - current.x) * ratio,
+      y: pointer.y - rect.height / 2 - (pointer.y - rect.height / 2 - current.y) * ratio,
+    }));
+    setZoom(nextZoom);
+  };
+
+  const resetEditorView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const beginPan = (event) => {
+    if (!(event.button === 1 || (event.button === 0 && spaceDown))) return false;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    panDrag.current = { x: event.clientX, y: event.clientY, start: pan };
+    setPanning(true);
+    return true;
+  };
+
+  const movePan = (event) => {
+    if (!panDrag.current) return;
+    setPan({
+      x: panDrag.current.start.x + event.clientX - panDrag.current.x,
+      y: panDrag.current.start.y + event.clientY - panDrag.current.y,
+    });
+  };
+
+  const endPan = () => {
+    panDrag.current = null;
+    setPanning(false);
   };
 
   const updateBrushCursor = (event) => {
     if (!["brush", "restore"].includes(tool)) return;
     const point = pointFromEvent(event);
     if (point) setBrushCursor(point);
+  };
+
+  const snapLinePoint = (start, point, shiftKey) => {
+    if (!start || !shiftKey) return point;
+    const dx = point.x - start.x;
+    const dy = point.y - start.y;
+    const distance = Math.hypot(dx, dy);
+    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+    return { x: start.x + Math.cos(angle) * distance, y: start.y + Math.sin(angle) * distance };
+  };
+
+  const handlePrecisionClick = (event) => {
+    if (activeLayer?.locked) return;
+    const raw = pointFromEvent(event);
+    if (!raw) return;
+    if (tool === "line") {
+      if (!linePoints.length) setLinePoints([raw]);
+      else setLinePoints([linePoints[0], snapLinePoint(linePoints[0], raw, event.shiftKey)]);
+    }
+    if (tool === "pen") setCurvePoints((points) => [...points, raw]);
+  };
+
+  const applyLine = () => {
+    if (linePoints.length !== 2) return;
+    commitLayers((current) => current.map((layer) => layer.id === activeLayerId ? {
+      ...layer,
+      strokes: [...(layer.strokes || []), { points: linePoints, size: effectiveBrushSize, mode: "cut" }],
+    } : layer));
+    setLinePoints([]);
+  };
+
+  const sampleSmoothCurve = (points) => {
+    if (points.length < 3) return points;
+    const closed = [...points, points[0], points[1]];
+    const sampled = [];
+    for (let i = 0; i < points.length; i++) {
+      const p0 = closed[(i - 1 + points.length) % points.length];
+      const p1 = closed[i];
+      const p2 = closed[i + 1];
+      const p3 = closed[i + 2];
+      for (let t = 0; t < 1; t += 0.08) {
+        const t2 = t * t, t3 = t2 * t;
+        sampled.push({
+          x: 0.5 * ((2*p1.x) + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+          y: 0.5 * ((2*p1.y) + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+        });
+      }
+    }
+    return sampled;
+  };
+
+  const applyCurve = () => {
+    if (curvePoints.length < 3) return;
+    const smooth = sampleSmoothCurve(curvePoints);
+    commitLayers((current) => current.map((layer) => layer.id === activeLayerId ? {
+      ...layer,
+      cuts: [...(layer.cuts || []), smooth],
+    } : layer));
+    setCurvePoints([]);
+  };
+
+  const cancelPrecision = () => {
+    setLinePoints([]);
+    setCurvePoints([]);
+    setPolygonPoints([]);
   };
 
   const undoBrushStroke = () => {
@@ -631,6 +772,28 @@ function CardSculptApp() {
           : layer
       )
     );
+
+  useEffect(() => {
+    const down = (event) => {
+      if (event.code === "Space" && !event.repeat) {
+        setSpaceDown(true);
+        if (!/INPUT|TEXTAREA/.test(event.target.tagName)) event.preventDefault();
+      }
+      if (event.key === "Escape") cancelPrecision();
+      if (event.key === "Enter") {
+        if (tool === "line") applyLine();
+        if (tool === "pen") applyCurve();
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        event.shiftKey ? redoEdit() : undoEdit();
+      }
+    };
+    const up = (event) => { if (event.code === "Space") setSpaceDown(false); };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [tool, linePoints, curvePoints, history, future, layers]);
 
   const header = (
     <header>
@@ -782,6 +945,12 @@ function CardSculptApp() {
                     <Scissors />
                     多邊形
                   </Btn>
+                  <Btn className={tool === "line" ? "active" : ""} onClick={() => { setTool("line"); cancelPrecision(); }}>
+                    <Minus />直線
+                  </Btn>
+                  <Btn className={tool === "pen" ? "active" : ""} onClick={() => { setTool("pen"); cancelPrecision(); }}>
+                    <MousePointer2 />曲線鋼筆
+                  </Btn>
 
                   <Btn
                     className={tool === "brush" ? "active" : ""}
@@ -816,8 +985,20 @@ function CardSculptApp() {
                     <div className="brush-controls">
                       <label>{tool === "restore" ? "還原筆刷" : "裁切筆刷"}大小：{brushSize}</label>
                       <input type="range" min="1" max="20" step="1" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} />
+                      <label>穩定度：{stability}</label>
+                      <input type="range" min="0" max="90" step="5" value={stability} onChange={(event) => setStability(Number(event.target.value))} />
+                      <label>尺寸模式</label>
+                      <select value={brushMode} onChange={(event) => setBrushMode(event.target.value)}><option value="image">跟隨圖片</option><option value="screen">固定畫面</option></select>
+                      <label>邊緣吸附：{edgeSnap}</label>
+                      <input type="range" min="0" max="100" step="10" value={edgeSnap} onChange={(event) => setEdgeSnap(Number(event.target.value))} />
                       <Btn onClick={undoBrushStroke} disabled={!(activeLayer?.strokes?.length)}>復原筆刷</Btn>
                     </div>
+                  )}
+                  {tool === "line" && (
+                    <div className="precision-panel"><p>點起點與終點。按 Shift 吸附 0°／45°／90°。</p><Btn className="primary" disabled={linePoints.length !== 2} onClick={applyLine}>套用直線</Btn><Btn onClick={() => setLinePoints([])}>清除</Btn></div>
+                  )}
+                  {tool === "pen" && (
+                    <div className="precision-panel"><p>沿輪廓放置節點，系統會產生平滑封閉曲線。</p><Btn className="primary" disabled={curvePoints.length < 3} onClick={applyCurve}>套用曲線</Btn><Btn onClick={() => setCurvePoints([])}>清除</Btn></div>
                   )}
                   {tool === "poly" && (
                     <>
@@ -837,19 +1018,23 @@ function CardSculptApp() {
                 <div
                   ref={cardStageRef}
                   className={`cardstage polygon-stage ${["brush", "restore"].includes(tool) ? "brush-stage" : ""}`}
-                  style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
+                  style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center" }}
                   onWheel={handleEditorWheel}
                   onPointerDown={(event) => {
+                    if (beginPan(event)) return;
                     if (["brush", "restore"].includes(tool)) beginBrush(event);
+                    else if (["line", "pen"].includes(tool)) handlePrecisionClick(event);
                     else addPolygonPoint(event);
                   }}
                   onPointerMove={(event) => {
+                    if (panning) movePan(event);
                     updateBrushCursor(event);
                     moveBrush(event);
                   }}
                   onPointerLeave={() => setBrushCursor(null)}
-                  onPointerUp={endBrush}
-                  onPointerCancel={endBrush}
+                  onPointerUp={(event) => { endBrush(event); endPan(); }}
+                  onPointerCancel={(event) => { endBrush(event); endPan(); }}
+                  onDoubleClick={(event) => { if (event.button === 1 || spaceDown) resetEditorView(); }}
                 >
                   <CardImage
                     src={card.image}
@@ -866,12 +1051,15 @@ function CardSculptApp() {
                         vectorEffect="non-scaling-stroke"
                       />
                     )}
+                    {linePoints.length > 0 && <polyline points={linePoints.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#38bdf8" strokeWidth={effectiveBrushSize} strokeLinecap="round" />}
+                    {curvePoints.length > 1 && <polyline points={sampleSmoothCurve(curvePoints).map((point) => `${point.x},${point.y}`).join(" ")} fill="rgba(56,189,248,.15)" stroke="#38bdf8" strokeWidth="0.7" />}
+                    {[...linePoints, ...curvePoints].map((point, index) => <circle key={`precision-${index}`} cx={point.x} cy={point.y} r="1.4" fill="#38bdf8" stroke="#fff" strokeWidth=".35" />)}
                     {brushStroke.length > 0 && (
                       <polyline
                         points={brushStroke.map((point) => `${point.x},${point.y}`).join(" ")}
                         fill="none"
                         stroke={tool === "restore" ? "rgba(52,211,153,.9)" : "rgba(248,113,113,.82)"}
-                        strokeWidth={brushSize}
+                        strokeWidth={effectiveBrushSize}
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       />
@@ -880,7 +1068,7 @@ function CardSculptApp() {
                       <circle
                         cx={brushCursor.x}
                         cy={brushCursor.y}
-                        r={brushSize / 2}
+                        r={effectiveBrushSize / 2}
                         fill={tool === "restore" ? "rgba(52,211,153,.18)" : "rgba(248,113,113,.18)"}
                         stroke={tool === "restore" ? "#34d399" : "#f87171"}
                         strokeWidth="0.45"
@@ -906,7 +1094,7 @@ function CardSculptApp() {
                     ))}
                   </svg>
                   <small>{activeLayer?.locked ? "請先從右側選擇切割層" : tool === "brush" ? (brushing ? "正在自由裁切，放開後套用" : "滾輪縮放；按住並塗抹不要的細節") : tool === "restore" ? (brushing ? "正在還原，放開後套用" : "滾輪縮放；塗抹要恢復的區域") : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
-                  <div className="zoom-indicator">{Math.round(zoom * 100)}%</div>
+                  <div className="zoom-indicator"><button onClick={() => setZoom((value) => clamp(value - .25, 1, 6))}>−</button><b>{Math.round(zoom * 100)}%</b><button onClick={() => setZoom((value) => clamp(value + .25, 1, 6))}>＋</button><button onClick={resetEditorView}>適合畫面</button></div>
                 </div>
               </section>
 
