@@ -300,4 +300,16 @@
   font-weight: 800;
   pointer-events: none;
 }
+/* 擴充包發售日期 */
+.sets .btn small {
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.library h3 > small {
+  margin-left: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+}
 
