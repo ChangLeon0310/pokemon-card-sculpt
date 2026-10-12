@@ -807,7 +807,6 @@ function CardSculptApp() {
                         strokeWidth={brushSize}
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        vectorEffect="non-scaling-stroke"
                       />
                     )}
                     {brushCursor && ["brush", "restore"].includes(tool) && !brushing && (
@@ -818,7 +817,6 @@ function CardSculptApp() {
                         fill={tool === "restore" ? "rgba(52,211,153,.18)" : "rgba(248,113,113,.18)"}
                         stroke={tool === "restore" ? "#34d399" : "#f87171"}
                         strokeWidth="0.45"
-                        vectorEffect="non-scaling-stroke"
                       />
                     )}
                     {polygonPoints.map((point, index) => (
