@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Box,
@@ -18,46 +18,14 @@ import {
   WandSparkles,
 } from "lucide-react";
 
-const sets = [
-  { id: "sv3", name: "黑炎支配者", series: "朱＆紫" },
-  { id: "sv2a", name: "寶可夢卡牌151", series: "朱＆紫" },
-  { id: "swsh12", name: "銀白戰槍", series: "劍＆盾" },
-];
+const API_BASE = "https://api.tcgdex.net/v2/zh-tw";
+const PAGE_SIZE = 40;
 
-const cards = [
-  {
-    id: "base1-4",
-    name: "噴火龍",
-    set: "sv3",
-    no: "006/165",
-    rarity: "R",
-    image: "https://assets.tcgdex.net/en/base/base1/4/high.webp",
-  },
-  {
-    id: "base1-2",
-    name: "水箭龜",
-    set: "sv2a",
-    no: "009/165",
-    rarity: "R",
-    image: "https://assets.tcgdex.net/en/base/base1/2/high.webp",
-  },
-  {
-    id: "base1-15",
-    name: "妙蛙花",
-    set: "sv2a",
-    no: "003/165",
-    rarity: "R",
-    image: "https://assets.tcgdex.net/en/base/base1/15/high.webp",
-  },
-  {
-    id: "base1-58",
-    name: "皮卡丘",
-    set: "swsh12",
-    no: "025/165",
-    rarity: "C",
-    image: "https://assets.tcgdex.net/en/base/base1/58/high.webp",
-  },
-];
+const assetUrl = (url, quality = "low") => {
+  if (!url) return "";
+  if (/\.(webp|png|jpg)$/i.test(url)) return url;
+  return `${url}/${quality}.webp`;
+};
 
 const seed = [
   { id: 1, name: "卡框與背景", visible: true, opacity: 1 },
@@ -99,9 +67,15 @@ function CardImage({ src, name, className = "", style = {} }) {
 
 export default function App() {
   const [screen, setScreen] = useState("library");
-  const [setId, setSetId] = useState("all");
+  const [sets, setSets] = useState([]);
+  const [setId, setSetId] = useState("");
+  const [cards, setCards] = useState([]);
   const [q, setQ] = useState("");
-  const [card, setCard] = useState(cards[0]);
+  const [card, setCard] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingSets, setLoadingSets] = useState(true);
+  const [loadingCards, setLoadingCards] = useState(false);
+  const [apiError, setApiError] = useState("");
   const [layers, setLayers] = useState(seed);
   const [tool, setTool] = useState("magic");
   const [exploded, setExploded] = useState(true);
@@ -116,6 +90,58 @@ export default function App() {
 
   const clamp = (value, min, max) =>
     Math.min(max, Math.max(min, value));
+
+  const loadSets = async () => {
+    setLoadingSets(true);
+    setApiError("");
+    try {
+      const response = await fetch(`${API_BASE}/sets`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const available = data.filter((item) => item.cardCount?.total > 0);
+      setSets(available);
+      if (!setId && available.length) setSetId(available[0].id);
+    } catch (error) {
+      setApiError(`版本載入失敗：${error.message}`);
+    } finally {
+      setLoadingSets(false);
+    }
+  };
+
+  const loadCards = async (nextSetId) => {
+    if (!nextSetId) return;
+    setLoadingCards(true);
+    setApiError("");
+    setVisibleCount(PAGE_SIZE);
+    try {
+      const response = await fetch(`${API_BASE}/sets/${encodeURIComponent(nextSetId)}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setCards(
+        (data.cards || []).map((item) => ({
+          ...item,
+          set: nextSetId,
+          no: item.localId,
+          rarity: "",
+          image: assetUrl(item.image, "low"),
+          imageHigh: assetUrl(item.image, "high"),
+        }))
+      );
+    } catch (error) {
+      setCards([]);
+      setApiError(`卡牌載入失敗：${error.message}`);
+    } finally {
+      setLoadingCards(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSets();
+  }, []);
+
+  useEffect(() => {
+    loadCards(setId);
+  }, [setId]);
 
   const beginRotate = (event) => {
     if (
@@ -164,14 +190,12 @@ export default function App() {
   };
 
   const filtered = useMemo(
-    () =>
-      cards.filter(
-        (item) =>
-          (setId === "all" || item.set === setId) &&
-          item.name.includes(q)
-      ),
-    [setId, q]
+    () => cards.filter((item) => item.name.toLowerCase().includes(q.trim().toLowerCase())),
+    [cards, q]
   );
+
+  const visibleCards = filtered.slice(0, visibleCount);
+  const selectedSet = sets.find((item) => item.id === setId);
 
   const steps = useMemo(
     () => [
@@ -230,7 +254,7 @@ export default function App() {
           <small>3D Card Studio</small>
         </b>
       </button>
-      <em>● 展示模式</em>
+      <em>{loadingSets || loadingCards ? "● API 載入中" : "● 繁中 API 已連線"}</em>
     </header>
   );
 
@@ -271,50 +295,64 @@ export default function App() {
 
             <h3>卡牌版本</h3>
 
-            <div className="sets">
-              <Btn
-                className={setId === "all" ? "active" : ""}
-                onClick={() => setSetId("all")}
-              >
-                全部版本
-                <small>所有卡牌</small>
-              </Btn>
+            {apiError && (
+              <div className="notice">
+                {apiError} <Btn onClick={() => (sets.length ? loadCards(setId) : loadSets())}>重新載入</Btn>
+              </div>
+            )}
 
-              {sets.map((item) => (
-                <Btn
-                  key={item.id}
-                  className={setId === item.id ? "active" : ""}
-                  onClick={() => setSetId(item.id)}
-                >
-                  {item.name}
-                  <small>{item.series}</small>
-                </Btn>
-              ))}
+            <div className="sets">
+              {loadingSets ? (
+                <span>正在載入繁體中文版本…</span>
+              ) : (
+                sets.map((item) => (
+                  <Btn
+                    key={item.id}
+                    className={setId === item.id ? "active" : ""}
+                    onClick={() => setSetId(item.id)}
+                  >
+                    {item.name}
+                    <small>{item.cardCount?.total || 0} 張</small>
+                  </Btn>
+                ))
+              )}
             </div>
 
+            <h3>
+              {selectedSet?.name || "卡牌"}
+              <small> {loadingCards ? "載入中…" : `共 ${filtered.length} 張`}</small>
+            </h3>
+
             <div className="cards">
-              {filtered.map((item) => (
+              {visibleCards.map((item) => (
                 <button
                   className="card"
                   key={item.id}
                   onClick={() => {
-                    setCard(item);
+                    setCard({ ...item, image: item.imageHigh || item.image });
                     setScreen("editor");
                   }}
                 >
                   <CardImage src={item.image} name={item.name} />
                   <div>
                     <b>{item.name}</b>
-                    <small>{item.no}</small>
-                    <i>{item.rarity}</i>
+                    <small>編號 {item.no}</small>
                   </div>
                 </button>
               ))}
             </div>
+
+            {visibleCount < filtered.length && (
+              <div style={{ textAlign: "center", marginTop: 24 }}>
+                <Btn className="primary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                  載入更多（尚有 {filtered.length - visibleCount} 張）
+                </Btn>
+              </div>
+            )}
           </motion.main>
         )}
 
-        {screen === "editor" && (
+        {screen === "editor" && card && (
           <motion.main
             key="edit"
             initial={{ opacity: 0 }}
@@ -404,7 +442,7 @@ export default function App() {
           </motion.main>
         )}
 
-        {screen === "preview" && (
+        {screen === "preview" && card && (
           <motion.main
             key="prev"
             initial={{ opacity: 0 }}
