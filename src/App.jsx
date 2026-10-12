@@ -125,6 +125,7 @@ export default function App() {
   const [polygonPoints, setPolygonPoints] = useState([]);
   const [layerName, setLayerName] = useState("切割層 1");
   const [activeLayerId, setActiveLayerId] = useState(2);
+  const [draggingPoint, setDraggingPoint] = useState(null);
 
   const drag = useRef(null);
 
@@ -236,6 +237,7 @@ export default function App() {
 
   const visibleCards = filtered.slice(0, visibleCount);
   const selectedSet = sets.find((item) => item.id === setId);
+  const activeLayer = layers.find((layer) => layer.id === activeLayerId);
 
   const steps = useMemo(
     () => [
@@ -260,12 +262,48 @@ export default function App() {
     [layers]
   );
 
+  const pointFromEvent = (event, element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      x: clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100),
+      y: clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100),
+    };
+  };
+
   const addPolygonPoint = (event) => {
-    if (tool !== "poly") return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100);
-    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100);
-    setPolygonPoints((points) => [...points, { x, y }]);
+    if (tool !== "poly" || draggingPoint !== null || activeLayer?.locked) return;
+    setPolygonPoints((points) => [
+      ...points,
+      pointFromEvent(event, event.currentTarget),
+    ]);
+  };
+
+  const beginPointDrag = (event, index) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDraggingPoint(index);
+  };
+
+  const movePoint = (event, index) => {
+    if (draggingPoint !== index) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const svg = event.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const nextPoint = pointFromEvent(event, svg);
+    setPolygonPoints((points) =>
+      points.map((point, pointIndex) =>
+        pointIndex === index ? nextPoint : point
+      )
+    );
+  };
+
+  const endPointDrag = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    setDraggingPoint(null);
   };
 
   const undoPolygonPoint = () =>
@@ -274,7 +312,7 @@ export default function App() {
   const clearPolygon = () => setPolygonPoints([]);
 
   const finishPolygon = () => {
-    if (polygonPoints.length < 3 || !activeLayerId) return;
+    if (polygonPoints.length < 3 || !activeLayerId || activeLayer?.locked) return;
     setLayers((current) =>
       current.map((layer) =>
         layer.id === activeLayerId
@@ -491,13 +529,13 @@ export default function App() {
                     目前圖層名稱
                     <input value={layerName} onChange={(event) => renameActiveLayer(event.target.value)} />
                   </label>
-                  <p>減法裁切模式：保留整張卡，圈選的區域會被挖除。可重複圈選移除多個區域。</p>
+                  <p>{activeLayer?.locked ? "完整背景為固定底圖，請選擇切割層後再裁切。" : "減法裁切模式：圈選不要的區域，拖曳黃色節點微調，再按裁掉。"}</p>
                   <div className="polygon-actions">
                     <Btn onClick={undoPolygonPoint} disabled={!polygonPoints.length}>復原節點</Btn>
                     <Btn onClick={clearPolygon} disabled={!polygonPoints.length}>清除節點</Btn>
                     <Btn onClick={undoLastCut} disabled={!(layers.find((layer) => layer.id === activeLayerId)?.cuts?.length)}>復原裁切</Btn>
                   </div>
-                  <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3 || !activeLayerId}>
+                  <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3 || !activeLayerId || activeLayer?.locked}>
                     裁掉圈選區域（{polygonPoints.length} 點）
                   </Btn>
                 </div>
@@ -505,7 +543,11 @@ export default function App() {
 
               <section className="canvas">
                 <div className="cardstage polygon-stage" onPointerDown={addPolygonPoint}>
-                  <CardImage src={card.image} name={card.name} />
+                  <CardImage
+                    src={card.image}
+                    name={card.name}
+                    style={cutMaskStyle(activeLayer?.cuts)}
+                  />
                   <svg className="polygon-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
                     {polygonPoints.length > 1 && (
                       <polyline
@@ -518,12 +560,24 @@ export default function App() {
                     )}
                     {polygonPoints.map((point, index) => (
                       <g key={`${point.x}-${point.y}-${index}`}>
-                        <circle cx={point.x} cy={point.y} r="1.4" fill="#fde047" stroke="#111827" strokeWidth="0.5" />
+                        <circle
+                          cx={point.x}
+                          cy={point.y}
+                          r="1.7"
+                          fill="#fde047"
+                          stroke="#111827"
+                          strokeWidth="0.5"
+                          className={`polygon-point ${draggingPoint === index ? "dragging" : ""}`}
+                          onPointerDown={(event) => beginPointDrag(event, index)}
+                          onPointerMove={(event) => movePoint(event, index)}
+                          onPointerUp={endPointDrag}
+                          onPointerCancel={endPointDrag}
+                        />
                         <text x={point.x + 1.8} y={point.y - 1.8} fill="white" fontSize="3">{index + 1}</text>
                       </g>
                     ))}
                   </svg>
-                  <small>{polygonPoints.length ? `${polygonPoints.length} 個節點，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
+                  <small>{activeLayer?.locked ? "請先從右側選擇切割層" : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
                 </div>
               </section>
 
