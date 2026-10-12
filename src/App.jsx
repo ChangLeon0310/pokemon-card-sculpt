@@ -23,7 +23,7 @@ import {
 
 const API_BASE = "https://api.tcgdex.net/v2/zh-tw";
 const PAGE_SIZE = 40;
-const SET_CACHE_KEY = "card-sculpt-zh-tw-sets-v1";
+const SET_CACHE_KEY = "card-sculpt-zh-tw-sets-v2";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const sortSetsNewestFirst = (items) =>
@@ -271,10 +271,7 @@ function CardSculptApp() {
         details.push(...batchDetails);
       }
 
-      const released = details.filter(
-        (item) => !item.releaseDate || item.releaseDate <= TODAY
-      );
-      const sorted = sortSetsNewestFirst(released);
+      const sorted = sortSetsNewestFirst(details);
 
       localStorage.setItem(
         SET_CACHE_KEY,
@@ -284,7 +281,7 @@ function CardSculptApp() {
       setSets(sorted);
       setSetId((current) => current || sorted[0]?.id || "");
     } catch (error) {
-      setApiError(`版本載入失敗：${error.message}`);
+      setApiError(`繁中擴充包載入失敗：${error.message}`);
     } finally {
       setLoadingSets(false);
     }
@@ -646,7 +643,7 @@ function CardSculptApp() {
           <small>3D Card Studio</small>
         </b>
       </button>
-      <em>{loadingSets || loadingCards ? "● API 載入中" : "● 繁中 API 已連線"}</em>
+      <em>{loadingSets || loadingCards ? "● API 載入中" : "● TCGdex 繁中資料已連線"}</em>
     </header>
   );
 
@@ -680,7 +677,7 @@ function CardSculptApp() {
                 <input
                   value={q}
                   onChange={(event) => setQ(event.target.value)}
-                  placeholder="搜尋卡牌名稱…"
+                  placeholder="搜尋繁體中文卡牌名稱…"
                 />
               </label>
             </section>
@@ -695,7 +692,7 @@ function CardSculptApp() {
 
             <div className="sets">
               {loadingSets ? (
-                <span>正在載入繁體中文版本…</span>
+                <span>正在載入繁體中文擴充包…</span>
               ) : (
                 sets.map((item) => (
                   <Btn
@@ -704,9 +701,7 @@ function CardSculptApp() {
                     onClick={() => setSetId(item.id)}
                   >
                     {item.name}
-                    <small>
-                      {formatReleaseDate(item.releaseDate)} · {item.cardCount?.total || 0} 張
-                    </small>
+                    <small>{item.cardCount?.total || 0} 張</small>
                   </Btn>
                 ))
               )}
@@ -715,9 +710,7 @@ function CardSculptApp() {
             <h3>
               {selectedSet?.name || "卡牌"}
               <small>
-                {loadingCards
-                  ? " 載入中…"
-                  : ` ${formatReleaseDate(selectedSet?.releaseDate)} · 共 ${filtered.length} 張`}
+                {loadingCards ? " 載入中…" : ` 共 ${filtered.length} 張`}
               </small>
             </h3>
 
