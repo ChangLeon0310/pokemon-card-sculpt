@@ -23,6 +23,22 @@ import {
 
 const API_BASE = "https://api.tcgdex.net/v2/zh-tw";
 const PAGE_SIZE = 40;
+const SET_CACHE_KEY = "card-sculpt-zh-tw-sets-v1";
+const TODAY = new Date().toISOString().slice(0, 10);
+
+const sortSetsNewestFirst = (items) =>
+  [...items].sort((a, b) => {
+    const dateA = a.releaseDate || "0000-00-00";
+    const dateB = b.releaseDate || "0000-00-00";
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
+  });
+
+const formatReleaseDate = (date) => {
+  if (!date) return "日期未提供";
+  const [year, month, day] = date.split("-");
+  return `${year}/${month}/${day}`;
+};
 
 const assetUrl = (url, quality = "low") => {
   if (!url) return "";
@@ -208,13 +224,65 @@ function CardSculptApp() {
   const loadSets = async () => {
     setLoadingSets(true);
     setApiError("");
+
     try {
+      const cached = localStorage.getItem(SET_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Date.now() - parsed.savedAt < 24 * 60 * 60 * 1000 && parsed.items?.length) {
+          const cachedSets = sortSetsNewestFirst(parsed.items);
+          setSets(cachedSets);
+          setSetId((current) => current || cachedSets[0]?.id || "");
+          setLoadingSets(false);
+          return;
+        }
+      }
+
       const response = await fetch(`${API_BASE}/sets`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      const available = data.filter((item) => item.cardCount?.total > 0);
-      setSets(available);
-      if (!setId && available.length) setSetId(available[0].id);
+      const summaries = (await response.json()).filter(
+        (item) => item.cardCount?.total > 0
+      );
+
+      const details = [];
+      const concurrency = 8;
+
+      for (let index = 0; index < summaries.length; index += concurrency) {
+        const batch = summaries.slice(index, index + concurrency);
+        const batchDetails = await Promise.all(
+          batch.map(async (summary) => {
+            if (summary.releaseDate) return summary;
+            try {
+              const detailResponse = await fetch(
+                `${API_BASE}/sets/${encodeURIComponent(summary.id)}`
+              );
+              if (!detailResponse.ok) return summary;
+              const detail = await detailResponse.json();
+              return {
+                ...summary,
+                releaseDate: detail.releaseDate || null,
+                serie: detail.serie || summary.serie,
+              };
+            } catch {
+              return summary;
+            }
+          })
+        );
+        details.push(...batchDetails);
+      }
+
+      const released = details.filter(
+        (item) => !item.releaseDate || item.releaseDate <= TODAY
+      );
+      const sorted = sortSetsNewestFirst(released);
+
+      localStorage.setItem(
+        SET_CACHE_KEY,
+        JSON.stringify({ savedAt: Date.now(), items: sorted })
+      );
+
+      setSets(sorted);
+      setSetId((current) => current || sorted[0]?.id || "");
     } catch (error) {
       setApiError(`版本載入失敗：${error.message}`);
     } finally {
@@ -636,7 +704,9 @@ function CardSculptApp() {
                     onClick={() => setSetId(item.id)}
                   >
                     {item.name}
-                    <small>{item.cardCount?.total || 0} 張</small>
+                    <small>
+                      {formatReleaseDate(item.releaseDate)} · {item.cardCount?.total || 0} 張
+                    </small>
                   </Btn>
                 ))
               )}
@@ -644,7 +714,11 @@ function CardSculptApp() {
 
             <h3>
               {selectedSet?.name || "卡牌"}
-              <small> {loadingCards ? "載入中…" : `共 ${filtered.length} 張`}</small>
+              <small>
+                {loadingCards
+                  ? " 載入中…"
+                  : ` ${formatReleaseDate(selectedSet?.releaseDate)} · 共 ${filtered.length} 張`}
+              </small>
             </h3>
 
             <div className="cards">
