@@ -314,14 +314,13 @@
 }
 
 
-/* 精密裁切工具 */
-.tools{grid-template-columns:repeat(2,minmax(0,1fr))}
-.brush-controls select{width:100%;padding:8px;border-radius:10px;border:1px solid #ffffff22;background:#020617;color:#e2e8f0}
-.precision-panel{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-.precision-panel p{grid-column:1/-1;margin:0;color:#94a3b8;font-size:12px;line-height:1.6}
-.canvas{cursor:default}
-.cardstage{transition:none}
-.cardstage:active{cursor:crosshair}
-.zoom-indicator{display:flex;align-items:center;gap:6px;right:12px;top:12px}
-.zoom-indicator button{border:1px solid #ffffff22;border-radius:8px;background:#ffffff0d;color:#e2e8f0;padding:4px 7px;cursor:pointer;pointer-events:auto}
-.zoom-indicator b{min-width:48px;text-align:center}
+/* 第一階段：磁性套索、遮罩預覽及邊緣精修 */
+.refine-panel{display:grid;gap:7px;margin-top:14px;padding:12px;border:1px solid #ffffff1f;border-radius:14px;background:#ffffff08}
+.refine-panel label{font-size:12px;color:#cbd5e1}
+.refine-panel input,.refine-panel select{width:100%;accent-color:#38bdf8}
+.refine-panel select{padding:8px;border:1px solid #ffffff22;border-radius:9px;background:#020617;color:#e2e8f0}
+.cardstage.preview-black{background:#000;background-image:none}
+.cardstage.preview-white{background:#fff;background-image:none}
+.cardstage.preview-mask{background:#000;background-image:none}
+.cardstage.preview-mask>img{filter:grayscale(1) contrast(100) brightness(5)}
+.cardstage.preview-original{background:#0f172a}
