@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  Eraser,
   Layers3,
   ListChecks,
   Plus,
@@ -29,8 +30,8 @@ const assetUrl = (url, quality = "low") => {
   return `${url}/${quality}.webp`;
 };
 
-const cutMaskStyle = (cuts = []) => {
-  if (!cuts.length) return {};
+const cutMaskStyle = (cuts = [], strokes = []) => {
+  if (!cuts.length && !strokes.length) return {};
 
   const holes = cuts
     .map(
@@ -41,6 +42,20 @@ const cutMaskStyle = (cuts = []) => {
     )
     .join("");
 
+  const brushPaths = strokes
+    .map((stroke) => {
+      if (!stroke.points?.length) return "";
+      const points = stroke.points;
+      if (points.length === 1) {
+        return `<circle cx="${points[0].x}" cy="${points[0].y}" r="${stroke.size / 2}" fill="black"/>`;
+      }
+      const path = points
+        .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+        .join(" ");
+      return `<path d="${path}" fill="none" stroke="black" stroke-width="${stroke.size}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    })
+    .join("");
+
   // Create a real alpha mask. A plain black polygon is still opaque when the
   // browser uses alpha masking, so the previous version did not make holes.
   const svg = `
@@ -49,6 +64,7 @@ const cutMaskStyle = (cuts = []) => {
         <mask id="cut-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
           <rect x="0" y="0" width="100" height="100" fill="white"/>
           ${holes}
+          ${brushPaths}
         </mask>
       </defs>
       <rect x="0" y="0" width="100" height="100" fill="white" mask="url(#cut-mask)"/>
@@ -67,8 +83,8 @@ const cutMaskStyle = (cuts = []) => {
 };
 
 const seed = [
-  { id: 1, name: "完整背景", visible: true, opacity: 1, cuts: [], locked: true },
-  { id: 2, name: "切割層 1", visible: true, opacity: 1, cuts: [], locked: false },
+  { id: 1, name: "完整背景", visible: true, opacity: 1, cuts: [], strokes: [], locked: true },
+  { id: 2, name: "切割層 1", visible: true, opacity: 1, cuts: [], strokes: [], locked: false },
 ];
 
 const Btn = ({ children, className = "", ...props }) => (
@@ -177,6 +193,9 @@ function CardSculptApp() {
   const [layerName, setLayerName] = useState("切割層 1");
   const [activeLayerId, setActiveLayerId] = useState(2);
   const [draggingPoint, setDraggingPoint] = useState(null);
+  const [brushSize, setBrushSize] = useState(5);
+  const [brushStroke, setBrushStroke] = useState([]);
+  const [brushing, setBrushing] = useState(false);
 
   const drag = useRef(null);
   const cardStageRef = useRef(null);
@@ -303,7 +322,7 @@ function CardSculptApp() {
       name: item.name || "未命名卡牌",
       image: item.imageHigh || item.image || "",
     });
-    setLayers(seed.map((layer) => ({ ...layer, cuts: [] })));
+    setLayers(seed.map((layer) => ({ ...layer, cuts: [], strokes: [] })));
     setActiveLayerId(2);
     setLayerName("切割層 1");
     setPolygonPoints([]);
@@ -388,6 +407,59 @@ function CardSculptApp() {
     setDraggingPoint(null);
   };
 
+  const beginBrush = (event) => {
+    if (tool !== "brush" || activeLayer?.locked) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const point = pointFromEvent(event);
+    if (!point) return;
+    setBrushStroke([point]);
+    setBrushing(true);
+  };
+
+  const moveBrush = (event) => {
+    if (!brushing || tool !== "brush") return;
+    event.preventDefault();
+    const point = pointFromEvent(event);
+    if (!point) return;
+    setBrushStroke((points) => {
+      const last = points[points.length - 1];
+      if (last && Math.hypot(point.x - last.x, point.y - last.y) < 0.35) return points;
+      return [...points, point];
+    });
+  };
+
+  const endBrush = (event) => {
+    if (!brushing) return;
+    event.preventDefault();
+    try {
+      if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
+    if (brushStroke.length) {
+      setLayers((current) =>
+        current.map((layer) =>
+          layer.id === activeLayerId
+            ? { ...layer, strokes: [...(layer.strokes || []), { points: brushStroke, size: brushSize }] }
+            : layer
+        )
+      );
+    }
+    setBrushStroke([]);
+    setBrushing(false);
+  };
+
+  const undoBrushStroke = () => {
+    setLayers((current) =>
+      current.map((layer) =>
+        layer.id === activeLayerId
+          ? { ...layer, strokes: (layer.strokes || []).slice(0, -1) }
+          : layer
+      )
+    );
+  };
+
   const undoPolygonPoint = () =>
     setPolygonPoints((points) => points.slice(0, -1));
 
@@ -429,7 +501,7 @@ function CardSculptApp() {
     const name = `切割層 ${layers.length}`;
     setLayers((current) => [
       ...current,
-      { id, name, visible: true, opacity: 1, cuts: [], locked: false },
+      { id, name, visible: true, opacity: 1, cuts: [], strokes: [], locked: false },
     ]);
     setActiveLayerId(id);
     setLayerName(name);
@@ -458,6 +530,8 @@ function CardSculptApp() {
     setLayerName(layer.name);
     setPolygonPoints([]);
     setDraggingPoint(null);
+    setBrushStroke([]);
+    setBrushing(false);
   };
 
   const remove = (id) => {
@@ -625,6 +699,17 @@ function CardSculptApp() {
                     <Scissors />
                     多邊形
                   </Btn>
+
+                  <Btn
+                    className={tool === "brush" ? "active" : ""}
+                    onClick={() => {
+                      setTool("brush");
+                      setPolygonPoints([]);
+                    }}
+                  >
+                    <Eraser />
+                    自由裁切
+                  </Btn>
                 </div>
 
                 <div className="polygon-panel">
@@ -632,7 +717,16 @@ function CardSculptApp() {
                     目前圖層名稱
                     <input value={layerName} onChange={(event) => renameActiveLayer(event.target.value)} />
                   </label>
-                  <p>{activeLayer?.locked ? "完整背景為固定底圖，請選擇切割層後再裁切。" : "減法裁切模式：圈選不要的區域，拖曳黃色節點微調，再按裁掉。"}</p>
+                  <p>{activeLayer?.locked ? "完整背景為固定底圖，請選擇切割層後再裁切。" : tool === "brush" ? "自由裁切模式：按住滑鼠或手指塗抹，不要的部分會在放開後直接消失。" : "多邊形模式：圈選不要的區域，拖曳黃色節點微調，再按裁掉。"}</p>
+                  {tool === "brush" && (
+                    <div className="brush-controls">
+                      <label>筆刷大小：{brushSize}</label>
+                      <input type="range" min="1" max="20" step="1" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} />
+                      <Btn onClick={undoBrushStroke} disabled={!(activeLayer?.strokes?.length)}>復原筆刷</Btn>
+                    </div>
+                  )}
+                  {tool === "poly" && (
+                    <>
                   <div className="polygon-actions">
                     <Btn onClick={undoPolygonPoint} disabled={!polygonPoints.length}>復原節點</Btn>
                     <Btn onClick={clearPolygon} disabled={!polygonPoints.length}>清除節點</Btn>
@@ -640,16 +734,27 @@ function CardSculptApp() {
                   </div>
                   <Btn className="primary finish-polygon" onClick={finishPolygon} disabled={polygonPoints.length < 3 || !activeLayerId || activeLayer?.locked}>
                     裁掉圈選區域（{polygonPoints.length} 點）
-                  </Btn>
+                  </Btn>                    </>
+                  )}
                 </div>
               </aside>
 
               <section className="canvas">
-                <div ref={cardStageRef} className="cardstage polygon-stage" onPointerDown={addPolygonPoint}>
+                <div
+                  ref={cardStageRef}
+                  className={`cardstage polygon-stage ${tool === "brush" ? "brush-stage" : ""}`}
+                  onPointerDown={(event) => {
+                    if (tool === "brush") beginBrush(event);
+                    else addPolygonPoint(event);
+                  }}
+                  onPointerMove={moveBrush}
+                  onPointerUp={endBrush}
+                  onPointerCancel={endBrush}
+                >
                   <CardImage
                     src={card.image}
                     name={card.name}
-                    style={cutMaskStyle(activeLayer?.cuts)}
+                    style={cutMaskStyle(activeLayer?.cuts, activeLayer?.strokes)}
                   />
                   <svg className="polygon-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
                     {polygonPoints.length > 1 && (
@@ -658,6 +763,17 @@ function CardSculptApp() {
                         fill="rgba(248,113,113,.28)"
                         stroke="#fca5a5"
                         strokeWidth="0.7"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )}
+                    {brushStroke.length > 0 && (
+                      <polyline
+                        points={brushStroke.map((point) => `${point.x},${point.y}`).join(" ")}
+                        fill="none"
+                        stroke="rgba(248,113,113,.82)"
+                        strokeWidth={brushSize}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                         vectorEffect="non-scaling-stroke"
                       />
                     )}
@@ -680,7 +796,7 @@ function CardSculptApp() {
                       </g>
                     ))}
                   </svg>
-                  <small>{activeLayer?.locked ? "請先從右側選擇切割層" : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
+                  <small>{activeLayer?.locked ? "請先從右側選擇切割層" : tool === "brush" ? (brushing ? "正在自由裁切，放開後套用" : "按住並塗抹不要的細節") : polygonPoints.length ? `${polygonPoints.length} 個節點；可拖曳黃色節點調整，紅色區域將被裁掉` : "圈選不要的區域，保留其餘卡面"}</small>
                 </div>
               </section>
 
@@ -707,7 +823,7 @@ function CardSculptApp() {
                       }
                     }}
                   >
-                    <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts)} />
+                    <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts, layer.strokes)} />
                     <b>
                       {layer.name}
                       <small>
@@ -878,7 +994,7 @@ function CardSculptApp() {
                           name={card.name}
                           style={{
                             opacity: layer.opacity,
-                            ...cutMaskStyle(layer.cuts),
+                            ...cutMaskStyle(layer.cuts, layer.strokes),
                           }}
                         />
                       </div>
