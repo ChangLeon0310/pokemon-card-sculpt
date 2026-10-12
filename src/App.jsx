@@ -48,7 +48,7 @@ const assetUrl = (url, quality = "low") => {
   return `${url}/${quality}.webp`;
 };
 
-const cutMaskStyle = (cuts = [], strokes = []) => {
+const cutMaskStyle = (cuts = [], strokes = [], refine = {}) => {
   if (!cuts.length && !strokes.length) return {};
 
   const holes = cuts
@@ -76,13 +76,23 @@ const cutMaskStyle = (cuts = [], strokes = []) => {
 
   // Create a real alpha mask. A plain black polygon is still opaque when the
   // browser uses alpha masking, so the previous version did not make holes.
+  const smooth = Math.max(0, Number(refine.smooth || 0));
+  const adjust = Number(refine.adjust || 0);
+  const morphology = adjust === 0 ? "" : `<feMorphology operator="${adjust > 0 ? "dilate" : "erode"}" radius="${Math.abs(adjust) / 4}"/>`;
+  const maskFilter = smooth || adjust ? `filter="url(#mask-refine)"` : "";
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
       <defs>
+        <filter id="mask-refine" x="-20%" y="-20%" width="140%" height="140%">
+          ${smooth ? `<feGaussianBlur stdDeviation="${smooth / 5}"/>` : ""}
+          ${morphology}
+        </filter>
         <mask id="cut-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
-          <rect x="0" y="0" width="100" height="100" fill="white"/>
-          ${holes}
-          ${brushPaths}
+          <g ${maskFilter}>
+            <rect x="0" y="0" width="100" height="100" fill="white"/>
+            ${holes}
+            ${brushPaths}
+          </g>
         </mask>
       </defs>
       <rect x="0" y="0" width="100" height="100" fill="white" mask="url(#cut-mask)"/>
@@ -101,8 +111,8 @@ const cutMaskStyle = (cuts = [], strokes = []) => {
 };
 
 const seed = [
-  { id: 1, name: "完整背景", visible: true, opacity: 1, cuts: [], strokes: [], locked: true },
-  { id: 2, name: "切割層 1", visible: true, opacity: 1, cuts: [], strokes: [], locked: false },
+  { id: 1, name: "完整背景", visible: true, opacity: 1, cuts: [], strokes: [], refine: { smooth: 0, adjust: 0 }, locked: true },
+  { id: 2, name: "切割層 1", visible: true, opacity: 1, cuts: [], strokes: [], refine: { smooth: 0, adjust: 0 }, locked: false },
 ];
 
 const Btn = ({ children, className = "", ...props }) => (
@@ -226,10 +236,14 @@ function CardSculptApp() {
   const [edgeSnap, setEdgeSnap] = useState(0);
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
+  const [previewMode, setPreviewMode] = useState("transparent");
+  const [magneticPoints, setMagneticPoints] = useState([]);
+  const [imagePixelsReady, setImagePixelsReady] = useState(false);
 
   const drag = useRef(null);
   const panDrag = useRef(null);
   const cardStageRef = useRef(null);
+  const pixelCanvasRef = useRef(null);
 
   const clamp = (value, min, max) =>
     Math.min(max, Math.max(min, value));
@@ -334,6 +348,28 @@ function CardSculptApp() {
   useEffect(() => {
     loadCards(setId);
   }, [setId]);
+
+  useEffect(() => {
+    setImagePixelsReady(false);
+    if (!card?.image) return;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(900, image.naturalWidth || 900);
+        canvas.height = Math.round(canvas.width * ((image.naturalHeight || 1260) / (image.naturalWidth || 900)));
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        context.getImageData(0, 0, 1, 1);
+        pixelCanvasRef.current = canvas;
+        setImagePixelsReady(true);
+      } catch {
+        pixelCanvasRef.current = null;
+      }
+    };
+    image.src = card.image;
+  }, [card?.image]);
 
   const beginRotate = (event) => {
     if (
@@ -627,6 +663,54 @@ function CardSculptApp() {
     return { x: start.x + Math.cos(angle) * distance, y: start.y + Math.sin(angle) * distance };
   };
 
+  const snapToImageEdge = (point) => {
+    const canvas = pixelCanvasRef.current;
+    if (!canvas || edgeSnap <= 0) return point;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const cx = Math.round((point.x / 100) * canvas.width);
+    const cy = Math.round((point.y / 100) * canvas.height);
+    const radius = Math.max(3, Math.round(3 + edgeSnap / 8));
+    const x0 = Math.max(1, cx - radius), y0 = Math.max(1, cy - radius);
+    const width = Math.min(canvas.width - x0 - 1, radius * 2 + 1);
+    const height = Math.min(canvas.height - y0 - 1, radius * 2 + 1);
+    if (width < 3 || height < 3) return point;
+    const data = context.getImageData(x0 - 1, y0 - 1, width + 2, height + 2).data;
+    const stride = width + 2;
+    const lum = (x, y) => {
+      const i = (y * stride + x) * 4;
+      return data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114;
+    };
+    let best = { score: -1, x: cx, y: cy };
+    for (let y = 1; y <= height; y++) for (let x = 1; x <= width; x++) {
+      const gx = Math.abs(lum(x + 1, y) - lum(x - 1, y));
+      const gy = Math.abs(lum(x, y + 1) - lum(x, y - 1));
+      const score = gx + gy;
+      if (score > best.score) best = { score, x: x0 + x - 1, y: y0 + y - 1 };
+    }
+    return { x: best.x / canvas.width * 100, y: best.y / canvas.height * 100 };
+  };
+
+  const handleMagneticPoint = (event) => {
+    if (activeLayer?.locked) return;
+    const raw = pointFromEvent(event);
+    if (!raw) return;
+    setMagneticPoints((points) => [...points, snapToImageEdge(raw)]);
+  };
+
+  const applyMagnetic = () => {
+    if (magneticPoints.length < 3) return;
+    commitLayers((current) => current.map((layer) => layer.id === activeLayerId ? {
+      ...layer, cuts: [...(layer.cuts || []), magneticPoints],
+    } : layer));
+    setMagneticPoints([]);
+  };
+
+  const updateActiveRefine = (key, value) => {
+    commitLayers((current) => current.map((layer) => layer.id === activeLayerId ? {
+      ...layer, refine: { ...(layer.refine || {}), [key]: Number(value) },
+    } : layer));
+  };
+
   const handlePrecisionClick = (event) => {
     if (activeLayer?.locked) return;
     const raw = pointFromEvent(event);
@@ -680,6 +764,7 @@ function CardSculptApp() {
   const cancelPrecision = () => {
     setLinePoints([]);
     setCurvePoints([]);
+    setMagneticPoints([]);
     setPolygonPoints([]);
   };
 
@@ -734,7 +819,7 @@ function CardSculptApp() {
     const name = `切割層 ${layers.length}`;
     setLayers((current) => [
       ...current,
-      { id, name, visible: true, opacity: 1, cuts: [], strokes: [], locked: false },
+      { id, name, visible: true, opacity: 1, cuts: [], strokes: [], refine: { smooth: 0, adjust: 0 }, locked: false },
     ]);
     setActiveLayerId(id);
     setLayerName(name);
@@ -962,6 +1047,9 @@ function CardSculptApp() {
                   <Btn className={tool === "pen" ? "active" : ""} onClick={() => { setTool("pen"); cancelPrecision(); }}>
                     <MousePointer2 />曲線鋼筆
                   </Btn>
+                  <Btn className={tool === "magnetic" ? "active" : ""} onClick={() => { setTool("magnetic"); cancelPrecision(); }}>
+                    <Sparkles />磁性套索
+                  </Btn>
 
                   <Btn
                     className={tool === "brush" ? "active" : ""}
@@ -971,7 +1059,7 @@ function CardSculptApp() {
                     }}
                   >
                     <Eraser />
-                    自由裁切
+                    移除筆刷
                   </Btn>
 
                   <Btn
@@ -982,7 +1070,7 @@ function CardSculptApp() {
                     }}
                   >
                     <WandSparkles />
-                    還原筆刷
+                    保留筆刷
                   </Btn>
                 </div>
 
@@ -1011,6 +1099,17 @@ function CardSculptApp() {
                   {tool === "pen" && (
                     <div className="precision-panel"><p>沿輪廓放置節點，系統會產生平滑封閉曲線。</p><Btn className="primary" disabled={curvePoints.length < 3} onClick={applyCurve}>套用曲線</Btn><Btn onClick={() => setCurvePoints([])}>清除</Btn></div>
                   )}
+                  {tool === "magnetic" && (
+                    <div className="precision-panel"><p>沿主體邊緣點擊，節點會吸附至附近高對比邊緣。{imagePixelsReady ? "邊緣偵測已就緒。" : "此圖片暫時只能使用一般節點。"}</p><Btn className="primary" disabled={magneticPoints.length < 3} onClick={applyMagnetic}>套用磁性套索</Btn><Btn onClick={() => setMagneticPoints([])}>清除</Btn></div>
+                  )}
+                  <div className="refine-panel">
+                    <label>邊緣平滑：{activeLayer?.refine?.smooth || 0}</label>
+                    <input type="range" min="0" max="10" value={activeLayer?.refine?.smooth || 0} onChange={(event) => updateActiveRefine("smooth", event.target.value)} />
+                    <label>邊界調整：{activeLayer?.refine?.adjust || 0}</label>
+                    <input type="range" min="-10" max="10" value={activeLayer?.refine?.adjust || 0} onChange={(event) => updateActiveRefine("adjust", event.target.value)} />
+                    <label>預覽背景</label>
+                    <select value={previewMode} onChange={(event) => setPreviewMode(event.target.value)}><option value="transparent">透明棋盤格</option><option value="black">黑底</option><option value="white">白底</option><option value="mask">黑白遮罩</option><option value="original">原圖</option></select>
+                  </div>
                   {tool === "poly" && (
                     <>
                   <div className="polygon-actions">
@@ -1028,12 +1127,13 @@ function CardSculptApp() {
               <section className="canvas">
                 <div
                   ref={cardStageRef}
-                  className={`cardstage polygon-stage ${["brush", "restore"].includes(tool) ? "brush-stage" : ""}`}
+                  className={`cardstage polygon-stage preview-${previewMode} ${["brush", "restore"].includes(tool) ? "brush-stage" : ""}`}
                   style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center" }}
                   onWheel={handleEditorWheel}
                   onPointerDown={(event) => {
                     if (beginPan(event)) return;
                     if (["brush", "restore"].includes(tool)) beginBrush(event);
+                    else if (tool === "magnetic") handleMagneticPoint(event);
                     else if (["line", "pen"].includes(tool)) handlePrecisionClick(event);
                     else addPolygonPoint(event);
                   }}
@@ -1050,7 +1150,7 @@ function CardSculptApp() {
                   <CardImage
                     src={card.image}
                     name={card.name}
-                    style={cutMaskStyle(activeLayer?.cuts, activeLayer?.strokes)}
+                    style={previewMode === "original" ? {} : cutMaskStyle(activeLayer?.cuts, activeLayer?.strokes, activeLayer?.refine)}
                   />
                   <svg className="polygon-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
                     {polygonPoints.length > 1 && (
@@ -1062,6 +1162,8 @@ function CardSculptApp() {
                         vectorEffect="non-scaling-stroke"
                       />
                     )}
+                    {magneticPoints.length > 1 && <polygon points={magneticPoints.map((point) => `${point.x},${point.y}`).join(" ")} fill="rgba(250,204,21,.16)" stroke="#facc15" strokeWidth=".7" />}
+                    {magneticPoints.map((point, index) => <circle key={`mag-${index}`} cx={point.x} cy={point.y} r="1.25" fill="#facc15" stroke="#111827" strokeWidth=".35" />)}
                     {linePoints.length > 0 && <polyline points={linePoints.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#38bdf8" strokeWidth={effectiveBrushSize} strokeLinecap="round" />}
                     {curvePoints.length > 1 && <polyline points={sampleSmoothCurve(curvePoints).map((point) => `${point.x},${point.y}`).join(" ")} fill="rgba(56,189,248,.15)" stroke="#38bdf8" strokeWidth="0.7" />}
                     {[...linePoints, ...curvePoints].map((point, index) => <circle key={`precision-${index}`} cx={point.x} cy={point.y} r="1.4" fill="#38bdf8" stroke="#fff" strokeWidth=".35" />)}
@@ -1132,7 +1234,7 @@ function CardSculptApp() {
                       }
                     }}
                   >
-                    <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts, layer.strokes)} />
+                    <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts, layer.strokes, layer.refine)} />
                     <b>
                       {layer.name}
                       <small>
@@ -1303,7 +1405,7 @@ function CardSculptApp() {
                           name={card.name}
                           style={{
                             opacity: layer.opacity,
-                            ...cutMaskStyle(layer.cuts, layer.strokes),
+                            ...cutMaskStyle(layer.cuts, layer.strokes, layer.refine),
                           }}
                         />
                       </div>
