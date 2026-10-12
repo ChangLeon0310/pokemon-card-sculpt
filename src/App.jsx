@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  ArrowDown,
+  ArrowUp,
   Box,
   Check,
   ChevronLeft,
@@ -434,6 +436,30 @@ function CardSculptApp() {
     setPolygonPoints([]);
   };
 
+  const moveLayer = (id, direction) => {
+    setLayers((current) => {
+      const index = current.findIndex((layer) => layer.id === id);
+      if (index < 0) return current;
+
+      const targetIndex = direction === "up" ? index + 1 : index - 1;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+
+      // Keep the fixed background at the bottom.
+      if (current[index].locked || current[targetIndex].locked) return current;
+
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  };
+
+  const selectLayer = (layer) => {
+    setActiveLayerId(layer.id);
+    setLayerName(layer.name);
+    setPolygonPoints([]);
+    setDraggingPoint(null);
+  };
+
   const remove = (id) => {
     setLayers((current) => current.filter((layer) => layer.id !== id));
     if (activeLayerId === id) {
@@ -670,10 +696,15 @@ function CardSculptApp() {
                   <div
                     className={`layer ${activeLayerId === layer.id ? "active-layer" : ""}`}
                     key={layer.id}
-                    onClick={() => {
-                      setActiveLayerId(layer.id);
-                      setLayerName(layer.name);
-                      setPolygonPoints([]);
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={activeLayerId === layer.id}
+                    onClick={() => selectLayer(layer)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        selectLayer(layer);
+                      }
                     }}
                   >
                     <CardImage src={card.image} name={card.name} style={cutMaskStyle(layer.cuts)} />
@@ -683,12 +714,49 @@ function CardSculptApp() {
                         {layer.locked ? "固定底圖" : `已裁切 ${layer.cuts?.length || 0} 區`} · 透明度 {Math.round(layer.opacity * 100)}%
                       </small>
                     </b>
-                    <button onClick={(event) => { event.stopPropagation(); toggle(layer.id); }}>
-                      {layer.visible ? <Eye /> : <EyeOff />}
-                    </button>
-                    <button disabled={layer.locked} onClick={(event) => { event.stopPropagation(); remove(layer.id); }}>
-                      <Trash2 />
-                    </button>
+                    <div className="layer-controls">
+                      {!layer.locked && (
+                        <>
+                          <button
+                            title="往上一層"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              moveLayer(layer.id, "up");
+                            }}
+                          >
+                            <ArrowUp />
+                          </button>
+                          <button
+                            title="往下一層"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              moveLayer(layer.id, "down");
+                            }}
+                          >
+                            <ArrowDown />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        title={layer.visible ? "隱藏圖層" : "顯示圖層"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggle(layer.id);
+                        }}
+                      >
+                        {layer.visible ? <Eye /> : <EyeOff />}
+                      </button>
+                      <button
+                        title={layer.locked ? "固定背景不可刪除" : "刪除圖層"}
+                        disabled={layer.locked}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          remove(layer.id);
+                        }}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </aside>
