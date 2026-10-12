@@ -120,4 +120,31 @@
     grid-template-columns: 1fr;
   }
 }
+/* 裁切完成即透明，節點可拖曳 */
+.polygon-overlay {
+  pointer-events: none;
+}
+
+.polygon-point {
+  pointer-events: all;
+  cursor: grab;
+  touch-action: none;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.9));
+}
+
+.polygon-point:hover {
+  filter: drop-shadow(0 0 5px #fde047);
+}
+
+.polygon-point.dragging {
+  cursor: grabbing;
+  filter: drop-shadow(0 0 7px #fde047);
+}
+
+.polygon-stage > img,
+.polygon-stage > .fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
