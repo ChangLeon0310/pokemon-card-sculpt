@@ -102,7 +102,36 @@ function CardImage({ src, name, className = "", style = {} }) {
   );
 }
 
-export default function App() {
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Card Sculpt runtime error", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="runtime-error">
+          <Layers3 />
+          <h2>頁面暫時無法顯示</h2>
+          <p>{this.state.error.message || "發生未知錯誤"}</p>
+          <button onClick={() => window.location.reload()}>重新載入</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function CardSculptApp() {
   const [screen, setScreen] = useState("library");
   const [sets, setSets] = useState([]);
   const [setId, setSetId] = useState("");
@@ -231,13 +260,36 @@ export default function App() {
   };
 
   const filtered = useMemo(
-    () => cards.filter((item) => item.name.toLowerCase().includes(q.trim().toLowerCase())),
+    () =>
+      cards.filter((item) =>
+        String(item?.name || "")
+          .toLowerCase()
+          .includes(q.trim().toLowerCase())
+      ),
     [cards, q]
   );
 
   const visibleCards = filtered.slice(0, visibleCount);
   const selectedSet = sets.find((item) => item.id === setId);
   const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+
+  const openCard = (item) => {
+    if (!item?.id) return;
+    setCard({
+      ...item,
+      name: item.name || "未命名卡牌",
+      image: item.imageHigh || item.image || "",
+    });
+    setLayers(seed.map((layer) => ({ ...layer, cuts: [] })));
+    setActiveLayerId(2);
+    setLayerName("切割層 1");
+    setPolygonPoints([]);
+    setDraggingPoint(null);
+    setGuide(false);
+    setStep(0);
+    setRot({ x: -8, y: -18 });
+    setScreen("editor");
+  };
 
   const steps = useMemo(
     () => [
@@ -456,10 +508,7 @@ export default function App() {
                 <button
                   className="card"
                   key={item.id}
-                  onClick={() => {
-                    setCard({ ...item, image: item.imageHigh || item.image });
-                    setScreen("editor");
-                  }}
+                  onClick={() => openCard(item)}
                 >
                   <CardImage src={item.image} name={item.name} />
                   <div>
@@ -804,5 +853,14 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <CardSculptApp />
+    </AppErrorBoundary>
   );
 }
