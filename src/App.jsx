@@ -23,10 +23,61 @@ import {
   WandSparkles,
 } from "lucide-react";
 
-const API_BASE = "https://api.tcgdex.net/v2/zh-tw";
+const API_BASE = "https://api.tcgdex.net/v2/ja";
 const PAGE_SIZE = 40;
-const SET_CACHE_KEY = "card-sculpt-zh-tw-sets-v2";
+const SET_CACHE_KEY = "card-sculpt-ja-sets-zh-labels-v1";
 const TODAY = new Date().toISOString().slice(0, 10);
+
+// 日版卡圖維持原樣，只翻譯擴充包／商品名稱。
+// 名稱以日本與台灣官方卡牌搜尋頁的商品名稱為主。
+const SET_NAME_ZH_TW = {
+  "30th CELEBRATION": "30th CELEBRATION",
+  "ストームエメラルダ": "綠寶石風暴",
+  "アビスアイ": "深淵之瞳",
+  "ニンジャスピナー": "忍者飛旋",
+  "ムニキスゼロ": "虛無歸零",
+  "スタートデッキ100 バトルコレクション": "初階牌組 100對戰收藏",
+  "MEGAドリームex": "超級進化夢想ex",
+  "インフェルノX": "烈獄狂火X",
+  "メガブレイブ": "超級勇氣",
+  "メガシンフォニア": "超級交響樂",
+  "ブラックボルト": "漆黑伏特",
+  "ホワイトフレア": "純白閃焰",
+  "ロケット団の栄光": "火箭隊的榮耀",
+  "熱風のアリーナ": "熱風競技場",
+  "バトルパートナーズ": "對戰搭檔",
+  "テラスタルフェスex": "太晶慶典ex",
+  "超電ブレイカー": "超電突圍",
+  "楽園ドラゴーナ": "樂園騰龍",
+  "ステラミラクル": "星晶奇跡",
+  "ナイトワンダラー": "黑夜漫遊者",
+  "変幻の仮面": "變幻假面",
+  "クリムゾンヘイズ": "緋紅薄霧",
+  "ワイルドフォース": "狂野之力",
+  "サイバージャッジ": "異度審判",
+  "シャイニートレジャーex": "閃色寶藏ex",
+  "古代の咆哮": "古代咆哮",
+  "未来の一閃": "未來閃光",
+  "レイジングサーフ": "激狂駭浪",
+  "黒炎の支配者": "黯焰支配者",
+  "ポケモンカード151": "寶可夢卡牌151",
+  "スノーハザード": "冰雪險境",
+  "クレイバースト": "碟旋暴擊",
+  "トリプレットビート": "三連音爆",
+  "スカーレットex": "朱ex",
+  "バイオレットex": "紫ex",
+};
+
+const normalizeSetName = (name = "") =>
+  String(name)
+    .replace(/^(強化拡張パック|拡張パック|ハイクラスパック|スターターセット|デッキビルドBOX)[「『]?/, "")
+    .replace(/[」』]$/, "")
+    .trim();
+
+const translatedSetName = (name = "") => {
+  const normalized = normalizeSetName(name);
+  return SET_NAME_ZH_TW[name] || SET_NAME_ZH_TW[normalized] || name;
+};
 
 const sortSetsNewestFirst = (items) =>
   [...items].sort((a, b) => {
@@ -308,7 +359,7 @@ function CardSculptApp() {
       setSets(sorted);
       setSetId((current) => current || sorted[0]?.id || "");
     } catch (error) {
-      setApiError(`繁中擴充包載入失敗：${error.message}`);
+      setApiError(`日文擴充包載入失敗：${error.message}`);
     } finally {
       setLoadingSets(false);
     }
@@ -902,7 +953,7 @@ function CardSculptApp() {
           <small>3D Card Studio</small>
         </b>
       </button>
-      <em>{loadingSets || loadingCards ? "● API 載入中" : "● TCGdex 繁中資料已連線"}</em>
+      <em>{loadingSets || loadingCards ? "● API 載入中" : "● TCGdex 日版資料已連線"}</em>
     </header>
   );
 
@@ -927,7 +978,7 @@ function CardSculptApp() {
                   選一張卡，<strong>雕出它的深度。</strong>
                 </h1>
                 <span>
-                  瀏覽卡牌、拆分圖層，再用自由視角觀看數位卡雕。
+                  擴充包名稱顯示繁體中文，卡牌名稱與高清卡面維持日文版。
                 </span>
               </div>
 
@@ -936,12 +987,12 @@ function CardSculptApp() {
                 <input
                   value={q}
                   onChange={(event) => setQ(event.target.value)}
-                  placeholder="搜尋繁體中文卡牌名稱…"
+                  placeholder="搜尋日文卡牌名稱…"
                 />
               </label>
             </section>
 
-            <h3>卡牌版本</h3>
+            <h3>日版卡牌系列</h3>
 
             {apiError && (
               <div className="notice">
@@ -951,7 +1002,7 @@ function CardSculptApp() {
 
             <div className="sets">
               {loadingSets ? (
-                <span>正在載入繁體中文擴充包…</span>
+                <span>正在載入日文擴充包…</span>
               ) : (
                 sets.map((item) => (
                   <Btn
@@ -959,17 +1010,19 @@ function CardSculptApp() {
                     className={setId === item.id ? "active" : ""}
                     onClick={() => setSetId(item.id)}
                   >
-                    {item.name}
-                    <small>{item.cardCount?.total || 0} 張</small>
+                    {translatedSetName(item.name)}
+                    <small>{item.name} · 日文版 · {item.cardCount?.total || 0} 張</small>
                   </Btn>
                 ))
               )}
             </div>
 
             <h3>
-              {selectedSet?.name || "卡牌"}
+              {translatedSetName(selectedSet?.name || "卡牌")}
               <small>
-                {loadingCards ? " 載入中…" : ` 共 ${filtered.length} 張`}
+                {loadingCards
+                  ? " 載入中…"
+                  : ` ${selectedSet?.name || ""} · 日文版 · 共 ${filtered.length} 張`}
               </small>
             </h3>
 
