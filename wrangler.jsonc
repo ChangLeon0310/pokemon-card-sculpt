@@ -6,13 +6,6 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  "r2_buckets": [
-    {
-      "binding": "CARD_IMAGES",
-      "bucket_name": "pokemon-card-images"
-    }
-  ]
+    "not_found_handling": "single-page-application"
+  }
 }
