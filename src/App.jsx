@@ -23,7 +23,13 @@ import {
   WandSparkles,
 } from "lucide-react";
 
-const API_BASE = "/cards/library.json";
+const BASE_URL = import.meta.env.BASE_URL;
+const API_BASE = `${BASE_URL}cards/library.json`;
+const resolveCardImage = (image = "") => {
+  if (!image) return "";
+  if (/^(https?:|data:|blob:)/i.test(image)) return image;
+  return `${BASE_URL}${String(image).replace(/^\/+/, "")}`;
+};
 const PAGE_SIZE = 40;
 const sortSetsNewestFirst = (items = []) =>
   [...items].sort((a, b) => {
@@ -257,7 +263,8 @@ function CardSculptApp() {
       ...item,
       set: nextSetId,
       no: item.number || item.no || "",
-      imageHigh: item.image,
+      image: resolveCardImage(item.image),
+      imageHigh: resolveCardImage(item.imageHigh || item.image),
     }));
     setCards(nextCards);
     setLoadingCards(false);
