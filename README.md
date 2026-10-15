@@ -1,31 +1,31 @@
-# 寶可夢卡雕 3D 工作室
+# CARD SCULPT - R2 共用卡圖庫設定
 
-可部署至 GitHub Pages 的 React + Vite 概念展示版。
+## 需要放進專案的檔案
 
-## 本機使用
+- `src/App.jsx`：使用本次提供的 `App.jsx`
+- `src/index.css`：使用本次提供的 `index.css`
+- 專案根目錄：`worker.js`
+- 專案根目錄：`wrangler.jsonc`
 
-```bash
-npm install
-npm run dev
-```
+## Cloudflare 設定
 
-## GitHub Pages
+1. 建立 R2 Bucket：`pokemon-card-images`
+2. Worker 的部署命令維持：`npx wrangler deploy`
+3. 在 Worker 的 Settings > Variables and Secrets 新增 Secret：
+   - 名稱：`ADMIN_TOKEN`
+   - 值：自行設定一組夠長的管理密碼
+4. 重新部署。
 
-1. 建立新的 GitHub repository。
-2. 將本專案全部檔案推送至 `main`。
-3. 到 Settings > Pages，將 Source 設為 **GitHub Actions**。
-4. 開啟 Actions 查看部署結果。
+## 使用方式
 
-`vite.config.js` 會在 GitHub Actions 中自動以 repository 名稱設定 base path。
-
-## 目前功能
-
-- 卡牌瀏覽、版本篩選、名稱搜尋
-- 圖層新增、刪除、顯示與隱藏
-- 3D CSS 圖層預覽、拖曳旋轉、爆炸視圖
-- IKEA 式組裝步驟
-- 圖片載入失敗替代畫面
+1. 打開網站，按「管理卡圖庫」。
+2. 輸入與 `ADMIN_TOKEN` 相同的管理密碼。
+3. 新增擴充包。
+4. 圖片依卡號命名，例如 `001.webp`、`002.png`，再批次上傳。
+5. 朋友不需要管理密碼，可直接選卡並使用卡雕工具。
 
 ## 注意
 
-影像分割與 API 目前是展示原型。第三方卡圖可能因防盜連或跨來源政策無法顯示，正式版建議使用自己的 Storage 或圖片代理。
+- `ADMIN_TOKEN` 不可寫進 App.jsx 或提交到 GitHub。
+- 同一擴充包中，相同卡號再次上傳會覆蓋原圖。
+- 刪除擴充包會一併刪除該擴充包在 R2 中的全部圖片。
