@@ -21,16 +21,10 @@ import {
   Sparkles,
   Trash2,
   WandSparkles,
-  Upload,
-  FolderPlus,
-  LogIn,
-  X,
 } from "lucide-react";
 
+const API_BASE = "/cards/library.json";
 const PAGE_SIZE = 40;
-const API_BASE = "/api";
-const ADMIN_TOKEN_KEY = "card-sculpt-admin-token";
-
 const sortSetsNewestFirst = (items = []) =>
   [...items].sort((a, b) => {
     const dateA = a.releaseDate || "0000-00-00";
@@ -38,10 +32,7 @@ const sortSetsNewestFirst = (items = []) =>
     if (dateA !== dateB) return dateB.localeCompare(dateA);
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
   });
-const formatReleaseDate = (date) => {
-  if (!date) return "日期未提供";
-  return String(date).replaceAll("-", "/");
-};
+const formatReleaseDate = (date) => date ? String(date).replaceAll("-", "/") : "日期未提供";
 const cutMaskStyle = (cuts = [], strokes = [], refine = {}) => {
   if (!cuts.length && !strokes.length) return {};
 
@@ -202,12 +193,6 @@ function CardSculptApp() {
   const [loadingSets, setLoadingSets] = useState(true);
   const [loadingCards, setLoadingCards] = useState(false);
   const [apiError, setApiError] = useState("");
-  const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || "");
-  const [showManager, setShowManager] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [newSet, setNewSet] = useState({ id: "", name: "", releaseDate: "" });
-  const [uploadSetId, setUploadSetId] = useState("");
-  const [libraryVersion, setLibraryVersion] = useState(0);
   const [layers, setLayers] = useState(seed);
   const [tool, setTool] = useState("magic");
   const [exploded, setExploded] = useState(true);
@@ -248,19 +233,18 @@ function CardSculptApp() {
   const clamp = (value, min, max) =>
     Math.min(max, Math.max(min, value));
 
-  const adminHeaders = () => ({ Authorization: `Bearer ${adminToken}` });
   const loadSets = async () => {
     setLoadingSets(true);
     setApiError("");
     try {
-      const response = await fetch(`${API_BASE}/library`, { cache: "no-store" });
+      const response = await fetch(`${API_BASE}?v=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const nextSets = sortSetsNewestFirst(data.sets || []);
       setSets(nextSets);
       setSetId((current) => nextSets.some((item) => item.id === current) ? current : (nextSets[0]?.id || ""));
     } catch (error) {
-      setApiError(`共享卡圖庫載入失敗：${error.message}`);
+      setApiError(`GitHub 卡圖庫載入失敗：${error.message}`);
     } finally {
       setLoadingSets(false);
     }
@@ -269,51 +253,16 @@ function CardSculptApp() {
     setLoadingCards(true);
     setVisibleCount(PAGE_SIZE);
     const selected = sets.find((item) => item.id === nextSetId);
-    setCards((selected?.cards || []).map((item) => ({ ...item, set: nextSetId, no: item.number || item.no || "" })));
+    const nextCards = (selected?.cards || []).map((item) => ({
+      ...item,
+      set: nextSetId,
+      no: item.number || item.no || "",
+      imageHigh: item.image,
+    }));
+    setCards(nextCards);
     setLoadingCards(false);
   };
-  const saveAdminToken = (value) => {
-    setAdminToken(value);
-    if (value) localStorage.setItem(ADMIN_TOKEN_KEY, value);
-    else localStorage.removeItem(ADMIN_TOKEN_KEY);
-  };
-  const createSet = async (event) => {
-    event.preventDefault();
-    if (!newSet.id.trim() || !newSet.name.trim()) return;
-    setUploading(true); setApiError("");
-    try {
-      const response = await fetch(`${API_BASE}/sets`, { method: "POST", headers: { "Content-Type": "application/json", ...adminHeaders() }, body: JSON.stringify(newSet) });
-      if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-      setNewSet({ id: "", name: "", releaseDate: "" });
-      await loadSets();
-    } catch (error) { setApiError(`新增擴充包失敗：${error.message}`); }
-    finally { setUploading(false); }
-  };
-  const uploadCards = async (files) => {
-    if (!uploadSetId || !files?.length) return;
-    setUploading(true); setApiError("");
-    try {
-      const form = new FormData();
-      [...files].forEach((file) => form.append("files", file));
-      const response = await fetch(`${API_BASE}/sets/${encodeURIComponent(uploadSetId)}/cards`, { method: "POST", headers: adminHeaders(), body: form });
-      if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-      await loadSets();
-      setSetId(uploadSetId);
-      setLibraryVersion((v) => v + 1);
-    } catch (error) { setApiError(`卡圖上傳失敗：${error.message}`); }
-    finally { setUploading(false); }
-  };
-  const deleteSet = async (targetId) => {
-    if (!confirm(`確定刪除擴充包 ${targetId} 及其中全部卡圖？`)) return;
-    setUploading(true);
-    try {
-      const response = await fetch(`${API_BASE}/sets/${encodeURIComponent(targetId)}`, { method: "DELETE", headers: adminHeaders() });
-      if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-      await loadSets();
-    } catch (error) { setApiError(`刪除失敗：${error.message}`); }
-    finally { setUploading(false); }
-  };
-  useEffect(() => { loadSets(); }, [libraryVersion]);
+  useEffect(() => { loadSets(); }, []);
   useEffect(() => { loadCards(setId); }, [setId, sets]);
   useEffect(() => {
     setImagePixelsReady(false);
@@ -868,7 +817,7 @@ function CardSculptApp() {
           <small>3D Card Studio</small>
         </b>
       </button>
-      <em>{loadingSets || loadingCards ? "● 共用卡圖庫載入中" : "● R2 共用卡圖庫已連線"}</em>
+      <em>{loadingSets || loadingCards ? "● GitHub 卡圖庫載入中" : "● GitHub 共用卡圖庫已連線"}</em>
     </header>
   );
 
@@ -893,7 +842,7 @@ function CardSculptApp() {
                   選一張卡，<strong>雕出它的深度。</strong>
                 </h1>
                 <span>
-                  擴充包與卡圖由你自行維護，朋友可直接選卡進行卡雕。
+                  擴充包與卡圖由 GitHub 專案自行維護，朋友可直接選卡進行卡雕。
                 </span>
               </div>
 
@@ -907,7 +856,7 @@ function CardSculptApp() {
               </label>
             </section>
 
-            <div className="library-title"><h3>共享卡牌系列</h3><Btn onClick={() => setShowManager(true)}><Upload /> 管理卡圖庫</Btn></div>
+            <h3>共享卡牌系列</h3>
 
             {apiError && (
               <div className="notice">
@@ -917,7 +866,7 @@ function CardSculptApp() {
 
             <div className="sets">
               {loadingSets ? (
-                <span>正在載入共享擴充包…</span>
+                <span>正在載入 GitHub 卡圖庫…</span>
               ) : (
                 sets.map((item) => (
                   <Btn
@@ -962,29 +911,6 @@ function CardSculptApp() {
                 <Btn className="primary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
                   載入更多（尚有 {filtered.length - visibleCount} 張）
                 </Btn>
-              </div>
-            )}
-            {showManager && (
-              <div className="manager-backdrop" onClick={() => setShowManager(false)}>
-                <section className="manager" onClick={(event) => event.stopPropagation()}>
-                  <div className="manager-head"><div><h2>R2 卡圖庫管理</h2><small>只有持有管理密碼的人可以新增或刪除。</small></div><button onClick={() => setShowManager(false)}><X /></button></div>
-                  <label>管理密碼<input type="password" value={adminToken} onChange={(event) => saveAdminToken(event.target.value)} placeholder="輸入 Cloudflare ADMIN_TOKEN" /></label>
-                  <form onSubmit={createSet} className="manager-form">
-                    <h3><FolderPlus /> 新增擴充包</h3>
-                    <input value={newSet.id} onChange={(event) => setNewSet({ ...newSet, id: event.target.value })} placeholder="代碼，例如 M6a" />
-                    <input value={newSet.name} onChange={(event) => setNewSet({ ...newSet, name: event.target.value })} placeholder="擴充包名稱" />
-                    <input type="date" value={newSet.releaseDate} onChange={(event) => setNewSet({ ...newSet, releaseDate: event.target.value })} />
-                    <Btn className="primary" disabled={uploading || !adminToken}>新增擴充包</Btn>
-                  </form>
-                  <div className="manager-form">
-                    <h3><Upload /> 批次上傳卡圖</h3>
-                    <select value={uploadSetId} onChange={(event) => setUploadSetId(event.target.value)}><option value="">選擇擴充包</option>{sets.map((item) => <option key={item.id} value={item.id}>{item.id} - {item.name}</option>)}</select>
-                    <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => uploadCards(event.target.files)} disabled={!uploadSetId || !adminToken || uploading} />
-                    <small>檔名會成為卡號，例如 001.webp、126.png。相同卡號會覆蓋。</small>
-                  </div>
-                  <div className="manage-sets">{sets.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{item.cards?.length || 0} 張</small></span><Btn onClick={() => deleteSet(item.id)} disabled={!adminToken || uploading}><Trash2 />刪除</Btn></div>)}</div>
-                  {uploading && <div className="upload-status">正在處理，請勿關閉頁面…</div>}
-                </section>
               </div>
             )}
           </motion.main>
