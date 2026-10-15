@@ -1,0 +1,17 @@
+{
+  "sets": [
+    {
+      "id": "M6a",
+      "name": "30th CELEBRATION",
+      "releaseDate": "2026-09-16",
+      "cards": [
+        {
+          "id": "M6a-001",
+          "number": "001",
+          "name": "卡片 001",
+          "image": "/cards/M6a/001.webp"
+        }
+      ]
+    }
+  ]
+}
