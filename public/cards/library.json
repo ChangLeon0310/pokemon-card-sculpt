@@ -2,15 +2,8 @@
   "sets": [
     {
       "id": "M2F",
-      "name": "M2F",
-      "releaseDate": "",
       "cards": [
-        {
-          "id": "M2F-028",
-          "number": "028",
-          "name": "波皇子",
-          "image": "cards/M2F/028.png"
-        }
+        "028.png"
       ]
     }
   ]
