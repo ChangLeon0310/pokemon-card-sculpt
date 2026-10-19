@@ -3,19 +3,24 @@
     {
       "id": "M2F",
       "name": "烈獄狂火X",
+      "releaseDate": "2025-10-9",
       "cards": [
         "028.png"
+      ]
+    },
+     {
+      "id": "M6a",
+      "name": "30CELEBRATION",
+      "releaseDate": "2026-09-16",
+      "cards": [
       ]
     },
     {
       "id": "M6",
       "name": "綠寶石風暴",
-      "cards": []
-    },
-    {
-      "id": "M6a",
-      "name": "30周年",
-      "cards": []
+      "releaseDate": "2026-08-07",
+      "cards": [
+      ]
     }
   ]
 }
