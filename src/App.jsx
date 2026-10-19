@@ -259,13 +259,29 @@ function CardSculptApp() {
     setLoadingCards(true);
     setVisibleCount(PAGE_SIZE);
     const selected = sets.find((item) => item.id === nextSetId);
-    const nextCards = (selected?.cards || []).map((item) => ({
-      ...item,
-      set: nextSetId,
-      no: item.number || item.no || "",
-      image: resolveCardImage(item.image),
-      imageHigh: resolveCardImage(item.imageHigh || item.image),
-    }));
+    const nextCards = (selected?.cards || []).map((item) => {
+      if (typeof item === "string") {
+        const fileName = item;
+        const number = fileName.replace(/\.[^.]+$/, "");
+        const image = resolveCardImage(`cards/${nextSetId}/${fileName}`);
+        return {
+          id: `${nextSetId}-${number}`,
+          set: nextSetId,
+          number,
+          no: number,
+          name: `${nextSetId} ${number}`,
+          image,
+          imageHigh: image,
+        };
+      }
+      return {
+        ...item,
+        set: nextSetId,
+        no: item.number || item.no || "",
+        image: resolveCardImage(item.image),
+        imageHigh: resolveCardImage(item.imageHigh || item.image),
+      };
+    });
     setCards(nextCards);
     setLoadingCards(false);
   };
@@ -881,7 +897,7 @@ function CardSculptApp() {
                     className={setId === item.id ? "active" : ""}
                     onClick={() => setSetId(item.id)}
                   >
-                    {item.name}
+                    {item.name || item.id}
                     <small>{formatReleaseDate(item.releaseDate)} · {item.cards?.length || 0} 張</small>
                   </Btn>
                 ))
@@ -889,7 +905,7 @@ function CardSculptApp() {
             </div>
 
             <h3>
-              {selectedSet?.name || "卡牌"}
+              {selectedSet?.name || selectedSet?.id || "卡牌"}
               <small>
                 {loadingCards
                   ? " 載入中…"
